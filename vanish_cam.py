@@ -359,6 +359,9 @@ def open_camera(index: int, width: int, height: int) -> cv2.VideoCapture:
             f"Webcam {index} is not available. Close the other apps that use it, or select a different webcam in the menu."
         )
 
+    # Many webcams supply large YUYV frames only at a low frame rate. MJPG gives the full rate.
+    # Set the format before the size, because the driver selects the size for the format.
+    capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
