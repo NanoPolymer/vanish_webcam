@@ -7,8 +7,23 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
+
 
 SOUND_PATH = Path(__file__).resolve().parent / "assets" / "vanish.MP3"
+
+
+def trim_leading_silence(samples: np.ndarray, threshold: float = 0.01) -> np.ndarray:
+    """Remove the silence at the start, so that the sound starts with the effect.
+
+    The threshold is a fraction of the maximum sample value.
+    """
+    limit = threshold * (np.iinfo(samples.dtype).max if samples.dtype.kind in "iu" else 1.0)
+    level = np.abs(samples.astype(np.float32))
+    if level.ndim > 1:
+        level = level.max(axis=1)
+    loud = np.flatnonzero(level > limit)
+    return samples[loud[0]:].copy() if loud.size else samples
 
 
 class VanishSound:
@@ -33,7 +48,10 @@ class VanishSound:
         try:
             if self.owns_mixer:
                 mixer.init(frequency=44100, size=-16, channels=2, buffer=256)
-            self.sound = mixer.Sound(str(path))  # Decode the file one time, before the webcam opens.
+            # Decode the file one time, before the webcam opens.
+            from pygame import sndarray
+
+            self.sound = sndarray.make_sound(trim_leading_silence(sndarray.array(mixer.Sound(str(path)))))
         except Exception as error:
             if self.owns_mixer:
                 mixer.quit()
@@ -46,6 +64,7 @@ class VanishSound:
             try:
                 self.process = subprocess.Popen(
                     [self.ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet",
+                     "-af", "silenceremove=start_periods=1:start_threshold=-40dB",
                      "-i", str(self.path)],
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

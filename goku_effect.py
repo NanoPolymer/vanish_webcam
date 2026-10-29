@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 
-EFFECT_SECONDS = 0.4
+EFFECT_SECONDS = 0.3
 HOLD_SECONDS = 1.0
 
 

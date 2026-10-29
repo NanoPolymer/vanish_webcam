@@ -10,6 +10,7 @@ from local_app.goku_effect import (
     HoldTimer, fingers_on_forehead, make_teleport_field, render_teleport,
 )
 from local_app.test_video_output import arguments
+from local_app.vanish_sound import trim_leading_silence
 
 
 WIDTH, HEIGHT = 640, 480
@@ -110,6 +111,18 @@ class TeleportRenderTests(unittest.TestCase):
     def test_field_is_fixed_and_complete_before_the_end(self):
         np.testing.assert_array_equal(self.field, make_teleport_field(60, 80))
         self.assertLess(float(self.field.max()), 1.0)
+
+
+class SoundTrimTests(unittest.TestCase):
+    def test_leading_silence_is_removed(self):
+        samples = np.zeros((10, 2), np.int16)
+        samples[4:, 0] = 20000
+        samples[1, 1] = 100  # Noise below the threshold.
+        np.testing.assert_array_equal(trim_leading_silence(samples), samples[4:])
+
+    def test_silent_sound_stays_unchanged(self):
+        samples = np.zeros((10, 2), np.int16)
+        self.assertIs(trim_leading_silence(samples), samples)
 
 
 class GokuVideoLoopTests(unittest.TestCase):
