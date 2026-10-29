@@ -68,6 +68,7 @@ TEXT = {
         "normal_detail": "V sign  /  dissolve",
         "naruto_detail": "Joined hands  /  log and smoke",
         "goku_detail": "Two fingers on the forehead for 1 s  /  teleport",
+        "peace_detail": "V sign  /  freeze frame and fade",
         "preview_title": "Webcam - Preview",
     },
     "it": {
@@ -79,6 +80,7 @@ TEXT = {
         "normal_detail": "Segno a V  /  dissolvenza",
         "naruto_detail": "Mani unite  /  tronco e fumo",
         "goku_detail": "Due dita sulla fronte per 1 s  /  teletrasporto",
+        "peace_detail": "Segno a V  /  fermo immagine e dissolvenza",
         "preview_title": "Webcam - Anteprima",
     },
 }
@@ -89,6 +91,8 @@ HAND_MODEL = APP_DIR / "hand_landmarker.task"
 FACE_MODEL = MODEL_DIR / "blaze_face_short_range.tflite"
 # The repository does not contain this sound. Without it, the Goku mode has no audio.
 TELEPORT_SOUND = APP_DIR / "assets" / "teleport.MP3"
+# The repository does not contain this sound. Without it, the Peace mode has no audio.
+PEACE_SOUND = APP_DIR / "assets" / "peace.mp3"
 
 MODEL_URLS = {
     SEGMENTER_MODEL: (
@@ -110,11 +114,13 @@ MODE_MODELS = {
     "normal": (SEGMENTER_MODEL, GESTURE_MODEL),
     "naruto": (SEGMENTER_MODEL,),
     "goku": (SEGMENTER_MODEL, FACE_MODEL),
+    "peace": (SEGMENTER_MODEL, GESTURE_MODEL),
 }
 
 CALIBRATION_SECONDS = 4.0
 BACKGROUND_SAMPLE_SECONDS = 0.55
 VANISH_SECONDS = 1.8
+PEACE_SECONDS = 2.0
 GESTURE_INTERVAL_SECONDS = 0.14
 
 
@@ -157,7 +163,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--virtual-device", help="Name of the virtual device")
     parser.add_argument(
-        "--mode", choices=("normal", "naruto", "goku"),
+        "--mode", choices=("normal", "naruto", "goku", "peace"),
         help="Skip the start menu and start the selected mode",
     )
     parser.add_argument(
@@ -211,13 +217,13 @@ def choose_mode() -> tuple[str, int, str] | None:
     language = [0]
     # Each row has an action, a key and a top position in pixels.
     rows = (("language", "l", 110), ("camera", "c", 210), ("normal", "1", 310),
-            ("naruto", "2", 410), ("goku", "3", 510))
+            ("naruto", "2", 410), ("goku", "3", 510), ("peace", "4", 610))
 
     def text(key: str) -> str:
         return TEXT[LANGUAGES[language[0]]][key]
 
     def draw() -> np.ndarray:
-        window = np.zeros((620, 700, 3), dtype=np.uint8)
+        window = np.zeros((720, 700, 3), dtype=np.uint8)
         window[:] = (26, 29, 34)
         cv2.putText(window, text("menu_heading"), (68, 88),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.85, (236, 239, 242), 2, cv2.LINE_AA)
@@ -228,6 +234,7 @@ def choose_mode() -> tuple[str, int, str] | None:
             "normal": "1  NORMAL VANISH",
             "naruto": "2  NARUTO VANISH",
             "goku": "3  GOKU VANISH",
+            "peace": "4  PEACE OUT",
         }
         for action, _, top in rows:
             cv2.rectangle(window, (65, top), (635, top + 80), (48, 54, 62), -1, cv2.LINE_AA)
@@ -840,10 +847,12 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
     resources.callback(recognizer.close)
     log_sprite = load_log() if mode == "naruto" else None
     vanish_sound = None
-    if mode in ("naruto", "goku"):
+    if mode in ("naruto", "goku", "peace"):
         # The effect works without audio, so a missing audio device must not stop the app.
         try:
-            vanish_sound = VanishSound(SOUND_PATH if mode == "naruto" else TELEPORT_SOUND)
+            vanish_sound = VanishSound(
+                {"naruto": SOUND_PATH, "goku": TELEPORT_SOUND, "peace": PEACE_SOUND}[mode]
+            )
         except RuntimeError as error:
             print(f"[Webcam] The audio is off: {error}")
     if vanish_sound is not None:
@@ -870,6 +879,8 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
     log_anchor: tuple[int, int, int] | None = None
     log_cache: dict[int, np.ndarray] = {}
     vanished_frame: np.ndarray | None = None
+    # The Peace mode keeps the first frame of each vanish, with its start time.
+    frozen: tuple[float, np.ndarray] | None = None
     virtual_camera = None
     virtual_camera_initialized = False
     calibration_remaining = None
@@ -963,7 +974,7 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                     state.last_gesture_check = now
                     rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
                     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    if mode == "normal":
+                    if mode in ("normal", "peace"):
                         name, score = recognize_gesture(recognizer, mp_image, elapsed_ms)
                         if args.gesture_debug and now - last_gesture_report >= 1.0:
                             print(
@@ -972,7 +983,8 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                                 f"rotation={recognizer.preferred_rotation or 0}"
                             )
                             last_gesture_report = now
-                        start_vanish_on_gesture(state, name, score, now)
+                        if start_vanish_on_gesture(state, name, score, now) and vanish_sound:
+                            vanish_sound.play()
                     else:
                         joined = recognizer.recognize_joined_hands(mp_image, elapsed_ms)
                         if args.gesture_debug and now - last_gesture_report >= 1.0:
@@ -1016,6 +1028,13 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                     if age >= GOKU_SECONDS:
                         state.phase = "vanished" if state.phase == "goku_vanishing" else "ready"
                         vanished_frame = None
+                elif mode == "peace" and state.phase == "vanishing":
+                    if frozen is None or frozen[0] != state.vanish_started:
+                        frozen = (state.vanish_started, camera_frame.copy())
+                    progress = min(1.0, (time.perf_counter() - state.vanish_started) / PEACE_SECONDS)
+                    display = cv2.addWeighted(frozen[1], 1.0 - progress, background, progress, 0)
+                    if progress >= 1.0:
+                        state.phase = "vanished"
                 elif state.phase == "ready":
                     display = camera_frame
                 else:

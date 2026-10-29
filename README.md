@@ -17,14 +17,16 @@ The published EXE may predate the Goku mode. To use them now, run the local scri
 ## Getting started
 
 1. Double-click `AVVIA_LOCALE.bat`.
-2. In the start menu, choose **Normal Vanish**, **Naruto Vanish**, or **Goku Vanish** with the mouse or the `1`, `2`, and `3` keys.
+2. In the start menu, choose **Normal Vanish**, **Naruto Vanish**, **Goku Vanish**, or **Peace Out** with the mouse or the `1`, `2`, `3`, and `4` keys.
 3. Step out of the camera frame for 4 seconds while the background is captured. The terminal tells you when you can step back in.
 
-**Normal Vanish:** Raise your index and middle fingers in a V sign. The dissolve starts as soon as the gesture is recognized and lasts about 3.6 seconds.
+**Normal Vanish:** Raise your index and middle fingers in a V sign. The dissolve starts as soon as the gesture is recognized and lasts about 1.8 seconds.
 
 **Goku:** Hold your index and middle fingers straight and together against your forehead for 1 second. Vertical slits open in your silhouette, the background shows through them, and you teleport away in about 0.3 seconds. To reappear, lower your hand, then repeat the gesture for another 1 second. The return uses the reverse effect. If you break the pose, the countdown starts over. `V` and `R` also work: `R` plays the return effect. To troubleshoot the gesture, pass `--gesture-debug`. No text is overlaid on the video.
 
 The teleport sound is not part of the repository. To hear it, put your own MP3 at `assets/teleport.MP3` (the file is in `.gitignore`). Without it, Goku mode runs without sound.
+
+**Peace Out:** Show the V sign. The image freezes, then you fade away in about 2 seconds, like the "peace out" meme. The sound is not part of the repository either. To hear it, put your own MP3 at `assets/peace.mp3` (the file is in `.gitignore`).
 
 **Naruto Vanish:** Bring your palms together in front of the webcam, with your fingers side by side rather than interlaced. Keep both hands visible. As soon as the gesture is recognized, you vanish in a cloud of smoke and a wooden log appears, falls, and remains visible until you press `R`. No microphone is needed. Naruto mode uses `hand_landmarker.task` to track both hands. `assets/vanish.MP3` plays through your computer speakers when the disappearance starts, including when triggered with `V`. You can trigger it again after pressing `R`.
 

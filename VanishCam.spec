@@ -22,6 +22,8 @@ if missing:
 # The teleport sound is optional and local only. Add it when it is available.
 if (root / "assets" / "teleport.MP3").is_file():
     resources.append((root / "assets" / "teleport.MP3", "assets"))
+if (root / "assets" / "peace.mp3").is_file():
+    resources.append((root / "assets" / "peace.mp3", "assets"))
 
 a = Analysis(
     [str(root / "vanish_cam.py")],
