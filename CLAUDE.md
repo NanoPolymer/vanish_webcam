@@ -15,7 +15,13 @@ This repository is a fork of `Nicovic17/vanish_webcam`. The `origin` remote is t
 
 - Write code comments, docstrings and terminal output (stdout, stderr, exceptions, `--help`, `.bat` echo lines) in ASD-STE100 Simplified Technical English. The terminal output is always English.
 - The window text has English and Italian versions. Put it in the `TEXT` dictionary in `vanish_cam.py`. English is the default.
-- OpenCV Hershey fonts show only ASCII characters. Do not use accented letters in window text.
+- Use only ASCII characters in window text. The rule keeps the text the same on all systems.
+
+## Window
+
+- `AppWindow` is the Tkinter window. It shows the video and a side panel with the webcam, the effect, the language and the buttons.
+- `VanishEngine` keeps the background, the models and the effect state. The tests use it without a window.
+- The window uses Pillow (`ImageTk`) to show the frames. The `PhotoImage` PPM path is 4 times slower.
 
 ## Assets
 

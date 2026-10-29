@@ -16,7 +16,7 @@ if not exist "%VENV_PY%" (
   if errorlevel 1 goto :error
 )
 
-"%VENV_PY%" -c "import cv2, mediapipe, numpy, pyvirtualcam" >nul 2>nul
+"%VENV_PY%" -c "import cv2, mediapipe, numpy, pyvirtualcam, PIL" >nul 2>nul
 if errorlevel 1 (
   echo [Vanish Lab] The app installs the necessary components. This step needs the internet only one time.
   "%VENV_PY%" -m pip install --upgrade pip

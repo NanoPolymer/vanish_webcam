@@ -9,7 +9,7 @@ from local_app import vanish_cam as app
 from local_app.goku_effect import (
     HoldTimer, fingers_on_forehead, make_teleport_field, render_teleport,
 )
-from local_app.test_video_output import arguments
+from local_app.test_video_output import make_engine
 from local_app.vanish_sound import trim_leading_silence
 
 
@@ -125,44 +125,30 @@ class SoundTrimTests(unittest.TestCase):
         self.assertIs(trim_leading_silence(samples), samples)
 
 
-class GokuVideoLoopTests(unittest.TestCase):
+class GokuEngineTests(unittest.TestCase):
     def test_gesture_vanishes_and_returns(self):
         # Frame n arrives at n * 0.25 seconds. Calibration ends at frame 16.
         clock = [0]
 
-        def read():
-            clock[0] += 1
-            value = 10 if clock[0] <= 16 else 200
-            return True, np.full((24, 40, 3), value, np.uint8)
-
         def pose(image, timestamp):
             return 17 <= clock[0] <= 21 or 27 <= clock[0] <= 31
 
-        capture = Mock()
-        capture.read.side_effect = read
-        segmenter, detector = Mock(), Mock(face_found=True)
-        detector.detect.side_effect = pose
         sound = Mock()
-        shown = []
-        keys = iter([0] * 34 + [ord("q")])
+        shown = {}
         with ExitStack() as mocks:
-            mocks.enter_context(patch.object(app, "parse_args", return_value=arguments(mode="goku")))
-            mocks.enter_context(patch.object(app, "list_cameras", return_value=[(0, "A")]))
-            mocks.enter_context(patch.object(app, "download_models"))
-            mocks.enter_context(patch.object(app, "open_camera", return_value=capture))
-            mocks.enter_context(patch.object(app, "create_tasks", return_value=(segmenter, detector)))
-            mocks.enter_context(patch.object(app, "VanishSound", return_value=sound))
-            mocks.enter_context(patch.object(app, "open_virtual_camera", return_value=None))
-            mocks.enter_context(patch.object(app, "person_mask", return_value=np.ones((24, 40), np.float32)))
-            mocks.enter_context(patch.object(app.time, "perf_counter", side_effect=lambda: clock[0] * 0.25))
-            for name in ("namedWindow", "setWindowTitle", "resizeWindow", "destroyAllWindows"):
-                mocks.enter_context(patch.object(app.cv2, name))
-            mocks.enter_context(patch.object(app.cv2, "imshow", side_effect=lambda name, frame: shown.append(frame.copy())))
-            mocks.enter_context(patch.object(app.cv2, "waitKey", side_effect=lambda delay: next(keys)))
             mocks.enter_context(patch("builtins.print"))
-            self.assertEqual(app.run(), 0)
+            mocks.enter_context(patch.object(app, "VanishSound", return_value=sound))
+            mocks.enter_context(patch.object(app, "person_mask", return_value=np.ones((24, 40), np.float32)))
+            engine, _, detector = make_engine(mocks, "goku")
+            detector.face_found = True
+            detector.detect.side_effect = pose
+            engine.capture_background(0.0)
+            for clock[0] in range(1, 36):
+                value = 10 if clock[0] <= 16 else 200
+                frame = np.full((24, 40, 3), value, np.uint8)
+                shown[clock[0]] = engine.process(frame, clock[0] * 0.25).copy()
+            engine.close()
 
-        shown = {n: frame for n, frame in enumerate(shown, start=1)}
         self.assertTrue((shown[20] == 200).all())  # The countdown is not complete.
         self.assertTrue((shown[22] == 10).any() and (shown[22] == 200).any())  # Slits.
         self.assertTrue((shown[26] == 10).all())  # Vanished.

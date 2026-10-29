@@ -45,46 +45,67 @@ except ImportError:
 
 APP_DIR = Path(__file__).resolve().parent
 
-# The OpenCV wheel sets QT_QPA_FONTDIR to a folder that does not exist, and Qt
-# shows a warning. Qt reads the variable when the first window opens, so use the system fonts.
-_font_dir = os.environ.get("QT_QPA_FONTDIR")
-if sys.platform.startswith("linux") and not (_font_dir and os.path.isdir(_font_dir)) \
-        and os.path.isdir("/usr/share/fonts"):
-    os.environ["QT_QPA_FONTDIR"] = "/usr/share/fonts"
 MODEL_DIR = APP_DIR / "models"
-WINDOW_NAME = "preview"
-MENU_WINDOW = "menu"
 
-# Text in the windows. The terminal output is always in English.
-# The Hershey fonts of OpenCV show only ASCII characters.
+# Text in the window. The terminal output is always in English.
+# Use only ASCII characters, so that all fonts can show the text.
 LANGUAGES = ("en", "it")
+LANGUAGE_NAMES = ("English", "Italiano")
+MODES = ("normal", "naruto", "goku", "peace")
+MODE_NAMES = {
+    "normal": "Normal Vanish", "naruto": "Naruto Vanish",
+    "goku": "Goku Vanish", "peace": "Peace Out",
+}
 TEXT = {
     "en": {
-        "menu_title": "Choose effect",
-        "menu_heading": "CHOOSE YOUR VANISH",
-        "language": "L  LANGUAGE: ENGLISH",
-        "language_detail": "Click or press L to change the language",
-        "camera_detail": "Click or press C to change the webcam",
+        "webcam": "Webcam",
+        "effect": "Effect",
+        "language": "Language",
         "normal_detail": "V sign  /  dissolve",
         "naruto_detail": "Joined hands  /  log and smoke",
         "goku_detail": "Two fingers on the forehead for 1 s  /  teleport",
         "peace_detail": "V sign  /  freeze frame and fade",
-        "preview_title": "Webcam - Preview",
+        "capture": "Capture background",
+        "capturing": "Leave the view: {0}",
+        "recapture": "New background",
+        "vanish": "Vanish  (V)",
+        "reappear": "Reappear  (R)",
+        "fullscreen": "Full screen  (F)",
+        "keys": "Space: background   Esc: leave full screen   Q: quit",
+        "status_no_background": "Capture the background first.",
+        "status_calibrating": "Move out of the camera view.",
+        "status_ready": "Ready. Do the gesture.",
+        "status_effect": "Vanishing...",
+        "status_vanished": "Vanished. Press R to reappear.",
+        "status_loading": "Loading the effect...",
+        "status_camera_error": "Cannot open this webcam.",
+        "status_mode_error": "Cannot load this effect.",
     },
     "it": {
-        "menu_title": "Scegli effetto",
-        "menu_heading": "SCEGLI IL TUO VANISH",
-        "language": "L  LINGUA: ITALIANO",
-        "language_detail": "Clic o L per cambiare lingua",
-        "camera_detail": "Clic o C per cambiare webcam",
+        "webcam": "Webcam",
+        "effect": "Effetto",
+        "language": "Lingua",
         "normal_detail": "Segno a V  /  dissolvenza",
         "naruto_detail": "Mani unite  /  tronco e fumo",
         "goku_detail": "Due dita sulla fronte per 1 s  /  teletrasporto",
         "peace_detail": "Segno a V  /  fermo immagine e dissolvenza",
-        "preview_title": "Webcam - Anteprima",
+        "capture": "Cattura sfondo",
+        "capturing": "Esci dall'inquadratura: {0}",
+        "recapture": "Nuovo sfondo",
+        "vanish": "Sparisci  (V)",
+        "reappear": "Riappari  (R)",
+        "fullscreen": "Schermo intero  (F)",
+        "keys": "Spazio: sfondo   Esc: esci da schermo intero   Q: esci",
+        "status_no_background": "Prima cattura lo sfondo.",
+        "status_calibrating": "Esci dall'inquadratura.",
+        "status_ready": "Pronto. Fai il gesto.",
+        "status_effect": "Sto sparendo...",
+        "status_vanished": "Sparito. Premi R per riapparire.",
+        "status_loading": "Carico l'effetto...",
+        "status_camera_error": "Impossibile aprire questa webcam.",
+        "status_mode_error": "Impossibile caricare questo effetto.",
     },
 }
-
 SEGMENTER_MODEL = MODEL_DIR / "selfie_segmenter_landscape.tflite"
 GESTURE_MODEL = MODEL_DIR / "gesture_recognizer.task"
 HAND_MODEL = APP_DIR / "hand_landmarker.task"
@@ -93,6 +114,7 @@ FACE_MODEL = MODEL_DIR / "blaze_face_short_range.tflite"
 TELEPORT_SOUND = APP_DIR / "assets" / "teleport.MP3"
 # The repository does not contain this sound. Without it, the Peace mode has no audio.
 PEACE_SOUND = APP_DIR / "assets" / "peace.mp3"
+MODE_SOUNDS = {"naruto": SOUND_PATH, "goku": TELEPORT_SOUND, "peace": PEACE_SOUND}
 
 MODEL_URLS = {
     SEGMENTER_MODEL: (
@@ -142,7 +164,7 @@ def positive_fps(value: str) -> float:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Show a vanish effect on the webcam: Normal Vanish, Naruto Vanish or Goku Vanish."
+        description="Show a vanish effect on the webcam: Normal Vanish, Naruto Vanish, Goku Vanish or Peace Out."
     )
     parser.add_argument("--width", type=int, default=960, help="Video width in pixels")
     parser.add_argument("--height", type=int, default=540, help="Video height in pixels")
@@ -163,8 +185,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--virtual-device", help="Name of the virtual device")
     parser.add_argument(
-        "--mode", choices=("normal", "naruto", "goku", "peace"),
-        help="Skip the start menu and start the selected mode",
+        "--mode", choices=MODES,
+        help="Effect at start (default: normal). The window can change it.",
     )
     parser.add_argument(
         "--gesture-debug", action="store_true",
@@ -204,79 +226,6 @@ def list_cameras(limit: int = 10) -> list[tuple[int, str]]:
             break
         cameras.append((index, f"Webcam {index}"))
     return cameras
-
-
-def choose_mode() -> tuple[str, int, str] | None:
-    """Show a simple keyboard and mouse menu before the camera video starts.
-
-    Return the mode, the webcam index and the language code.
-    """
-    cameras = list_cameras() or [(0, "Webcam 0")]
-    selected = [None]
-    camera = [0]
-    language = [0]
-    # Each row has an action, a key and a top position in pixels.
-    rows = (("language", "l", 110), ("camera", "c", 210), ("normal", "1", 310),
-            ("naruto", "2", 410), ("goku", "3", 510), ("peace", "4", 610))
-
-    def text(key: str) -> str:
-        return TEXT[LANGUAGES[language[0]]][key]
-
-    def draw() -> np.ndarray:
-        window = np.zeros((720, 700, 3), dtype=np.uint8)
-        window[:] = (26, 29, 34)
-        cv2.putText(window, text("menu_heading"), (68, 88),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.85, (236, 239, 242), 2, cv2.LINE_AA)
-        index, name = cameras[camera[0]]
-        headings = {
-            "language": text("language"),
-            "camera": f"C  WEBCAM {index}: {name[:30]}",
-            "normal": "1  NORMAL VANISH",
-            "naruto": "2  NARUTO VANISH",
-            "goku": "3  GOKU VANISH",
-            "peace": "4  PEACE OUT",
-        }
-        for action, _, top in rows:
-            cv2.rectangle(window, (65, top), (635, top + 80), (48, 54, 62), -1, cv2.LINE_AA)
-            cv2.rectangle(window, (65, top), (635, top + 80), (111, 142, 153), 2, cv2.LINE_AA)
-            cv2.putText(window, headings[action], (90, top + 34),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.77, (240, 245, 247), 2, cv2.LINE_AA)
-            cv2.putText(window, text(f"{action}_detail"), (90, top + 62),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.53, (179, 195, 201), 1, cv2.LINE_AA)
-        return window
-
-    def activate(action: str) -> None:
-        if action == "language":
-            language[0] = (language[0] + 1) % len(LANGUAGES)
-            cv2.setWindowTitle(MENU_WINDOW, text("menu_title"))
-        elif action == "camera":
-            camera[0] = (camera[0] + 1) % len(cameras)
-        else:
-            selected[0] = action
-
-    def on_mouse(event, x, y, flags, userdata):
-        if event == cv2.EVENT_LBUTTONUP and 65 <= x <= 635:
-            for action, _, top in rows:
-                if top <= y <= top + 80:
-                    activate(action)
-
-    cv2.namedWindow(MENU_WINDOW, cv2.WINDOW_AUTOSIZE)
-    cv2.setWindowTitle(MENU_WINDOW, text("menu_title"))
-    cv2.setMouseCallback(MENU_WINDOW, on_mouse)
-    try:
-        while selected[0] is None:
-            cv2.imshow(MENU_WINDOW, draw())
-            key = cv2.waitKey(30) & 0xFF
-            for action, row_key, _ in rows:
-                if key == ord(row_key):
-                    activate(action)
-            if key in (ord("q"), 27):
-                return None
-            if cv2.getWindowProperty(MENU_WINDOW, cv2.WND_PROP_VISIBLE) < 1:
-                return None
-        return selected[0], cameras[camera[0]][0], LANGUAGES[language[0]]
-    finally:
-        cv2.destroyWindow(MENU_WINDOW)
 
 
 def open_virtual_camera(args: argparse.Namespace, width: int, height: int):
@@ -793,11 +742,6 @@ def start_naruto_on_join(state: AppState, joined: bool, now: float) -> bool:
     return False
 
 
-def set_fullscreen(enabled: bool) -> None:
-    mode = cv2.WINDOW_FULLSCREEN if enabled else cv2.WINDOW_NORMAL
-    cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, mode)
-
-
 def self_test() -> int:
     """Make sure that the bundled resources and the models are available. Do not open a webcam."""
     required = (SEGMENTER_MODEL, GESTURE_MODEL, HAND_MODEL, FACE_MODEL, SOUND_PATH)
@@ -806,6 +750,7 @@ def self_test() -> int:
         raise RuntimeError(f"These resources are missing: {', '.join(missing)}")
     load_log()
     import pygame.mixer  # The distributed build must contain its MP3 decoder.
+    from PIL import ImageTk  # The window needs Pillow to show the video.
     for mode in MODE_MODELS:
         segmenter, recognizer = create_tasks(mode)
         try:
@@ -816,294 +761,540 @@ def self_test() -> int:
     return 0
 
 
+class VanishEngine:
+    """Keep the background, the models and the effect state. Change a camera frame into the output frame."""
+
+    def __init__(self, args: argparse.Namespace):
+        self.args = args
+        self.mode: str | None = None
+        self.segmenter = None
+        self.recognizer = None
+        self.sound: VanishSound | None = None
+        self.log_sprite: np.ndarray | None = None
+        self.state = AppState(phase="no_background")
+        self.background: np.ndarray | None = None
+        self.background_samples: list[np.ndarray] = []
+        self.calibration_remaining: int | None = None
+        self.last_gesture_report = 0.0
+        self.started = time.perf_counter()
+        self.dissolve_field: np.ndarray | None = None
+        self.sparkle_noise: np.ndarray | None = None
+        self.teleport_field: np.ndarray | None = None
+        self.log_cache: dict[int, np.ndarray] = {}
+        self.reset_effect()
+
+    def reset_effect(self) -> None:
+        self.state.vanish_started = None
+        self.last_mask: np.ndarray | None = None
+        self.last_mask_at = float("-inf")
+        self.goku_hold = HoldTimer()
+        self.log_anchor: tuple[int, int, int] | None = None
+        self.vanished_frame: np.ndarray | None = None
+        # The Peace mode keeps the first frame of each vanish, with its start time.
+        self.frozen: tuple[float, np.ndarray] | None = None
+
+    def set_mode(self, mode: str) -> None:
+        """Load the models and the sound of the mode. Keep the background."""
+        if mode == self.mode:
+            return
+        download_models(mode)
+        segmenter, recognizer = create_tasks(mode)
+        self.close()
+        self.segmenter, self.recognizer = segmenter, recognizer
+        self.log_sprite = load_log() if mode == "naruto" else None
+        self.log_cache = {}
+        if mode in MODE_SOUNDS:
+            # The effect works without audio, so a missing audio device must not stop the app.
+            try:
+                self.sound = VanishSound(MODE_SOUNDS[mode])
+            except RuntimeError as error:
+                print(f"[Webcam] The audio is off: {error}")
+        self.mode = mode
+        self.reset_effect()
+        if self.background is not None and self.state.phase != "calibrating":
+            self.state.phase = "ready"
+
+    def close(self) -> None:
+        tasks = (self.recognizer, self.segmenter)
+        self.segmenter = self.recognizer = None
+        for task in tasks:
+            if task is not None:
+                task.close()
+        if self.sound is not None:
+            self.sound.close()
+            self.sound = None
+
+    def capture_background(self, now: float) -> None:
+        self.state.phase = "calibrating"
+        self.state.calibration_started = now
+        self.background_samples.clear()
+        self.calibration_remaining = None
+        self.reset_effect()
+        print("[Webcam] Move out of the camera view for 4 seconds. The app records the background.")
+
+    def forget_background(self) -> None:
+        """Remove the background, for example after a change of the webcam."""
+        self.background = None
+        self.background_samples.clear()
+        self.state.phase = "no_background"
+        self.reset_effect()
+
+    def seconds_left(self, now: float) -> int:
+        """Return the remaining seconds of the background capture."""
+        return max(0, int(np.ceil(CALIBRATION_SECONDS - (now - self.state.calibration_started))))
+
+    def play_sound(self) -> None:
+        if self.sound is not None:
+            self.sound.play()
+
+    def vanish(self, now: float) -> None:
+        if self.background is None or self.state.phase == "calibrating":
+            return
+        self.reset_effect()
+        self.state.phase = {"naruto": "naruto_vanishing", "goku": "goku_vanishing"}.get(self.mode, "vanishing")
+        self.state.vanish_started = now
+        self.play_sound()
+
+    def reappear(self, now: float) -> None:
+        if self.mode == "goku" and self.state.phase == "vanished":
+            # In the Goku mode, R plays the teleport in reverse.
+            self.reset_effect()
+            self.state.phase = "goku_returning"
+            self.state.vanish_started = now
+            self.play_sound()
+        elif self.background is not None and self.state.phase != "calibrating":
+            self.state.phase = "ready"
+            self.reset_effect()
+
+    def process(self, camera_frame: np.ndarray, now: float) -> np.ndarray:
+        """Return the output frame for one camera frame. The frame is already a mirror image if necessary."""
+        state, mode, args = self.state, self.mode, self.args
+        height, width = camera_frame.shape[:2]
+        if mode == "normal" and (self.dissolve_field is None or self.dissolve_field.shape != (height, width)):
+            self.dissolve_field, self.sparkle_noise = make_dissolve_fields(height, width)
+        if mode == "goku" and (self.teleport_field is None or self.teleport_field.shape != (height, width)):
+            self.teleport_field = make_teleport_field(height, width)
+
+        elapsed_ms = int((now - self.started) * 1000)
+        mp_image = None
+
+        if (
+            mode == "goku" and self.background is not None
+            and state.phase in ("ready", "vanished")
+            and now - state.last_gesture_check >= 0.08
+        ):
+            state.last_gesture_check = now
+            rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            pose = self.recognizer.detect(mp_image, elapsed_ms)
+            if args.gesture_debug and now - self.last_gesture_report >= 1.0:
+                print(f"[Goku] face={self.recognizer.face_found}, fingers on forehead={pose}")
+                self.last_gesture_report = now
+            if self.goku_hold.update(pose, now):
+                state.phase = "goku_vanishing" if state.phase == "ready" else "goku_returning"
+                state.vanish_started = now
+                self.vanished_frame = None
+                self.play_sound()
+
+        if state.phase == "no_background":
+            return camera_frame
+
+        if state.phase == "calibrating":
+            remaining = self.seconds_left(now)
+            if remaining != self.calibration_remaining:
+                print(f"[Webcam] Background capture: {remaining} seconds.")
+                self.calibration_remaining = remaining
+            elapsed = now - state.calibration_started
+            if elapsed >= CALIBRATION_SECONDS - BACKGROUND_SAMPLE_SECONDS:
+                self.background_samples.append(camera_frame.copy())
+            if elapsed >= CALIBRATION_SECONDS:
+                if self.background_samples:
+                    stack = np.stack(self.background_samples[-18:], axis=0)
+                    self.background = np.median(stack, axis=0).astype(np.uint8)
+                else:
+                    self.background = camera_frame.copy()
+                self.background_samples.clear()
+                state.phase = "ready"
+                print("[Webcam] The background is ready. You can move back into the camera view.")
+            return camera_frame
+
+        background = self.background
+        if state.phase == "vanished":
+            if self.vanished_frame is None:
+                self.vanished_frame = background.copy()
+                if mode == "naruto" and self.log_anchor is not None:
+                    overlay_log(self.vanished_frame, self.log_sprite,
+                                landed_log_anchor(self.log_anchor, height), cache=self.log_cache)
+            return self.vanished_frame
+
+        mask = self.last_mask
+        if (
+            state.phase == "ready" and mode != "goku"
+            and now - state.last_gesture_check >=
+            (0.08 if mode == "naruto" else GESTURE_INTERVAL_SECONDS)
+        ):
+            state.last_gesture_check = now
+            rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            if mode in ("normal", "peace"):
+                name, score = recognize_gesture(self.recognizer, mp_image, elapsed_ms)
+                if args.gesture_debug and now - self.last_gesture_report >= 1.0:
+                    print(
+                        f"[Gesture] {name}, score={score:.2f}, "
+                        f"crop={self.recognizer.preferred_crop or 'full'}, "
+                        f"rotation={self.recognizer.preferred_rotation or 0}"
+                    )
+                    self.last_gesture_report = now
+                if start_vanish_on_gesture(state, name, score, now):
+                    self.play_sound()
+            else:
+                joined = self.recognizer.recognize_joined_hands(mp_image, elapsed_ms)
+                if args.gesture_debug and now - self.last_gesture_report >= 1.0:
+                    print(f"[Hands] found={self.recognizer.last_hand_count}, "
+                          f"joined={joined}, view={self.recognizer.preferred_view or 'full'}")
+                    self.last_gesture_report = now
+                if start_naruto_on_join(state, joined, now):
+                    self.play_sound()
+
+        if state.phase in ("vanishing", "naruto_vanishing", "goku_vanishing", "goku_returning"):
+            # The normal dissolve updates the silhouette at 20 Hz. The Naruto
+            # effect needs it only when the person is still visible.
+            needs_mask = (
+                (mode in ("normal", "goku") and (mask is None or now - self.last_mask_at >= 0.05))
+                or (mode == "naruto" and (self.log_anchor is None or now - state.vanish_started < 0.13))
+            )
+            if needs_mask:
+                if mp_image is None:
+                    rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
+                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                mask = person_mask(self.segmenter, mp_image, elapsed_ms, width, height)
+                self.last_mask = mask
+                self.last_mask_at = now
+            if mode == "naruto" and self.log_anchor is None:
+                self.log_anchor = substitution_anchor(mask)
+
+        if mode == "naruto" and state.phase == "naruto_vanishing":
+            age = max(0.04, now - state.vanish_started)
+            display = render_substitution(
+                camera_frame, background, mask, self.log_sprite, self.log_anchor, age, self.log_cache
+            )
+            if age >= EFFECT_SECONDS:
+                state.phase = "vanished"
+                self.vanished_frame = display
+        elif mode == "goku" and state.phase in ("goku_vanishing", "goku_returning"):
+            age = now - state.vanish_started
+            progress = min(1.0, age / GOKU_SECONDS)
+            if state.phase == "goku_returning":
+                progress = 1.0 - progress
+            display = render_teleport(camera_frame, background, mask, self.teleport_field, progress)
+            if age >= GOKU_SECONDS:
+                state.phase = "vanished" if state.phase == "goku_vanishing" else "ready"
+                self.vanished_frame = None
+        elif mode == "peace" and state.phase == "vanishing":
+            if self.frozen is None or self.frozen[0] != state.vanish_started:
+                self.frozen = (state.vanish_started, camera_frame.copy())
+            progress = min(1.0, (now - state.vanish_started) / PEACE_SECONDS)
+            display = cv2.addWeighted(self.frozen[1], 1.0 - progress, background, progress, 0)
+            if progress >= 1.0:
+                state.phase = "vanished"
+        elif state.phase == "ready":
+            display = camera_frame
+        else:
+            progress = 0.0
+            if state.phase == "vanishing" and state.vanish_started is not None:
+                progress = min(1.0, (now - state.vanish_started) / VANISH_SECONDS)
+                if progress >= 1.0:
+                    state.phase = "vanished"
+            display = apply_dissolve(
+                camera_frame, background, mask, progress, self.dissolve_field, self.sparkle_noise
+            )
+            if state.phase == "vanished":
+                self.vanished_frame = display
+        return display
+
+
+class AppWindow:
+    """Show the video and the controls in one window. The webcam and the effect can change at any time."""
+
+    ACCENT = "#2f7ddc"
+    ACTIVE = "#e8833a"
+    PANEL = "#1d2026"
+    CONTROL = "#30363e"
+    FOREGROUND = "#eceff2"
+    MUTED = "#b3c3c9"
+
+    def __init__(self, args: argparse.Namespace, resources: ExitStack):
+        import tkinter as tk
+        from tkinter import ttk
+        from PIL import Image, ImageTk
+
+        self.tk, self.Image, self.ImageTk = tk, Image, ImageTk
+        self.args = args
+        self.language = "en"
+        self.cameras = list_cameras() or [(0, "Webcam 0")]
+        self.capture: cv2.VideoCapture | None = None
+        self.virtual_camera = None
+        self.virtual_camera_initialized = False
+        self.photo = None
+        self.status_override: str | None = None
+        self.engine = VanishEngine(args)
+        resources.callback(self.engine.close)
+        resources.callback(self.release_camera)
+        resources.callback(self.close_virtual_camera)
+
+        self.root = tk.Tk()
+        resources.callback(self.destroy)
+        self.root.title("VanishCam")
+        self.root.configure(bg=self.PANEL)
+        self.root.protocol("WM_DELETE_WINDOW", self.quit)
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure("TCombobox", fieldbackground=self.CONTROL, background=self.CONTROL,
+                        foreground=self.FOREGROUND, arrowcolor=self.FOREGROUND)
+        style.map("TCombobox", fieldbackground=[("readonly", self.CONTROL)],
+                  foreground=[("readonly", self.FOREGROUND)])
+        self.root.option_add("*TCombobox*Listbox.background", self.CONTROL)
+        self.root.option_add("*TCombobox*Listbox.foreground", self.FOREGROUND)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(self.root, width=args.width, height=args.height,
+                                bg="black", highlightthickness=0)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.image_item = self.canvas.create_image(0, 0, anchor="center")
+
+        panel = tk.Frame(self.root, bg=self.PANEL, padx=16, pady=16)
+        panel.grid(row=0, column=1, sticky="ns")
+        self.panel = panel
+        label_options = dict(bg=self.PANEL, fg=self.MUTED, anchor="w")
+
+        def heading(row: int) -> tk.Label:
+            label = tk.Label(panel, **label_options)
+            label.grid(row=row, column=0, sticky="ew", pady=(10, 2))
+            return label
+
+        def choice(row: int, values, command) -> ttk.Combobox:
+            box = ttk.Combobox(panel, state="readonly", values=values, width=30, takefocus=0)
+            box.grid(row=row, column=0, sticky="ew")
+            box.bind("<<ComboboxSelected>>", lambda event: (command(box.current()), self.root.focus_set()))
+            return box
+
+        def button(row: int, command, **options) -> tk.Button:
+            widget = tk.Button(panel, command=command, takefocus=0, relief="flat", bd=0,
+                               bg=self.CONTROL, fg=self.FOREGROUND, activebackground=self.ACCENT,
+                               activeforeground="white", padx=10, pady=8, **options)
+            widget.grid(row=row, column=0, sticky="ew", pady=(10, 0))
+            return widget
+
+        self.webcam_label = heading(0)
+        self.webcam_box = choice(1, [f"{index}: {name}" for index, name in self.cameras], self.select_camera)
+        self.effect_label = heading(2)
+        self.effect_box = choice(3, [MODE_NAMES[mode] for mode in MODES], self.select_mode)
+        self.detail_label = tk.Label(panel, bg=self.PANEL, fg=self.MUTED, anchor="w", justify="left")
+        self.detail_label.grid(row=4, column=0, sticky="ew")
+        self.language_label = heading(5)
+        self.language_box = choice(6, LANGUAGE_NAMES, self.select_language)
+        self.background_button = button(7, self.capture_background, font=("TkDefaultFont", 11, "bold"))
+        self.vanish_button = button(8, lambda: self.engine.vanish(time.perf_counter()))
+        self.reappear_button = button(9, lambda: self.engine.reappear(time.perf_counter()))
+        self.fullscreen_button = button(10, self.toggle_fullscreen)
+        self.status_label = tk.Label(panel, bg=self.PANEL, fg=self.FOREGROUND, anchor="w",
+                                     justify="left", wraplength=240)
+        self.status_label.grid(row=11, column=0, sticky="ew", pady=(16, 0))
+        panel.rowconfigure(12, weight=1)
+        self.keys_label = tk.Label(panel, bg=self.PANEL, fg=self.MUTED, anchor="w",
+                                   justify="left", wraplength=240, font=("TkDefaultFont", 8))
+        self.keys_label.grid(row=13, column=0, sticky="sew")
+
+        self.root.bind("<KeyPress>", self.on_key)
+        self.fullscreen = False
+        self.webcam_box.current(0)
+        self.language_box.current(0)
+        mode = args.mode or "normal"
+        self.effect_box.current(MODES.index(mode))
+        self.update_texts()
+        self.open_camera(self.cameras[0][0])
+        self.select_mode(MODES.index(mode))
+        if args.fullscreen:
+            self.toggle_fullscreen()
+
+    def text(self, key: str) -> str:
+        return TEXT[self.language][key]
+
+    def run(self) -> None:
+        self.root.after(1, self.tick)
+        self.root.mainloop()
+
+    def quit(self) -> None:
+        self.root.quit()
+
+    def destroy(self) -> None:
+        try:
+            self.root.destroy()
+        except self.tk.TclError:
+            pass
+
+    def release_camera(self) -> None:
+        if self.capture is not None:
+            self.capture.release()
+            self.capture = None
+
+    def close_virtual_camera(self) -> None:
+        if self.virtual_camera is not None:
+            self.virtual_camera.close()
+            self.virtual_camera = None
+
+    def open_camera(self, index: int) -> None:
+        self.release_camera()
+        try:
+            self.capture = open_camera(index, self.args.width, self.args.height)
+            self.capture.set(cv2.CAP_PROP_FPS, self.args.fps)
+            self.status_override = None
+        except RuntimeError as error:
+            print(f"[Webcam] {error}")
+            self.status_override = self.text("status_camera_error")
+
+    def select_camera(self, position: int) -> None:
+        self.open_camera(self.cameras[position][0])
+        # The old background is from a different view.
+        self.engine.forget_background()
+
+    def select_mode(self, position: int) -> None:
+        mode = MODES[position]
+        self.status_label.configure(text=self.text("status_loading"))
+        self.root.update_idletasks()
+        try:
+            self.engine.set_mode(mode)
+            self.status_override = None
+        except Exception as error:
+            print(f"[Webcam] Cannot load the mode {mode}: {error}")
+            self.status_override = self.text("status_mode_error")
+            if self.engine.mode in MODES:
+                self.effect_box.current(MODES.index(self.engine.mode))
+        self.update_texts()
+
+    def select_language(self, position: int) -> None:
+        self.language = LANGUAGES[position]
+        self.update_texts()
+
+    def capture_background(self) -> None:
+        self.engine.capture_background(time.perf_counter())
+
+    def toggle_fullscreen(self) -> None:
+        self.fullscreen = not self.fullscreen
+        self.root.attributes("-fullscreen", self.fullscreen)
+        if self.fullscreen:
+            self.panel.grid_remove()
+        else:
+            self.panel.grid()
+
+    def on_key(self, event) -> None:
+        key = event.keysym.lower()
+        now = time.perf_counter()
+        if key == "q":
+            self.quit()
+        elif key == "escape" and self.fullscreen:
+            self.toggle_fullscreen()
+        elif key == "space":
+            self.capture_background()
+        elif key == "v":
+            self.engine.vanish(now)
+        elif key == "r":
+            self.engine.reappear(now)
+        elif key == "f":
+            self.toggle_fullscreen()
+
+    def update_texts(self) -> None:
+        self.webcam_label.configure(text=self.text("webcam"))
+        self.effect_label.configure(text=self.text("effect"))
+        self.language_label.configure(text=self.text("language"))
+        mode = self.engine.mode or MODES[self.effect_box.current()]
+        self.detail_label.configure(text=self.text(f"{mode}_detail"))
+        self.vanish_button.configure(text=self.text("vanish"))
+        self.reappear_button.configure(text=self.text("reappear"))
+        self.fullscreen_button.configure(text=self.text("fullscreen"))
+        self.keys_label.configure(text=self.text("keys"))
+        self.update_controls(time.perf_counter())
+
+    def update_controls(self, now: float) -> None:
+        phase = self.engine.state.phase
+        if phase == "calibrating":
+            text = self.text("capturing").format(self.engine.seconds_left(now))
+            color = self.ACTIVE
+        elif phase == "no_background":
+            text, color = self.text("capture"), self.ACCENT
+        else:
+            text, color = self.text("recapture"), self.CONTROL
+        self.background_button.configure(text=text, bg=color)
+        if self.status_override:
+            status = self.status_override
+        elif phase in ("no_background", "calibrating", "ready", "vanished"):
+            status = self.text(f"status_{phase}")
+        else:
+            status = self.text("status_effect")
+        self.status_label.configure(text=status)
+        usable = "normal" if self.engine.background is not None and phase != "calibrating" else "disabled"
+        self.vanish_button.configure(state=usable)
+        self.reappear_button.configure(state=usable)
+
+    def show(self, frame: np.ndarray) -> None:
+        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
+        scale = min(width / frame.shape[1], height / frame.shape[0])
+        if scale > 0 and abs(scale - 1.0) > 0.01:
+            size = (max(1, round(frame.shape[1] * scale)), max(1, round(frame.shape[0] * scale)))
+            frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
+        image = self.Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        if self.photo is not None and (self.photo.width(), self.photo.height()) == image.size:
+            self.photo.paste(image)
+        else:
+            self.photo = self.ImageTk.PhotoImage(image)
+            self.canvas.itemconfigure(self.image_item, image=self.photo)
+        self.canvas.coords(self.image_item, width // 2, height // 2)
+
+    def tick(self) -> None:
+        """Process one webcam frame. Tk calls this function again after each frame."""
+        if self.capture is None:
+            self.update_controls(time.perf_counter())
+            self.root.after(200, self.tick)
+            return
+        ok, camera_frame = self.capture.read()
+        if not ok:
+            self.status_override = self.text("status_camera_error")
+            self.update_controls(time.perf_counter())
+            self.root.after(200, self.tick)
+            return
+        if not self.args.no_mirror:
+            camera_frame = cv2.flip(camera_frame, 1)
+        now = time.perf_counter()
+        display = self.engine.process(camera_frame, now)
+        if not self.virtual_camera_initialized:
+            self.virtual_camera = open_virtual_camera(self.args, display.shape[1], display.shape[0])
+            self.virtual_camera_initialized = True
+        if self.virtual_camera is not None:
+            # Only the local preview is a mirror. Video call apps mirror the self-view themselves.
+            send_virtual_frame(self.virtual_camera, display if self.args.no_mirror else cv2.flip(display, 1))
+        self.show(display)
+        self.update_controls(now)
+        if self.virtual_camera is not None:
+            self.virtual_camera.sleep_until_next_frame()
+        self.root.after(1, self.tick)
+
+
 def run() -> int:
     args = parse_args()
     if getattr(args, "self_test", False):
         return self_test()
     with ExitStack() as resources:
         if getattr(args, "meeting_audio", False):
-            # Make the microphone before the menu, so that the meeting app can select it early.
+            # Make the microphone before the window, so that the meeting app can select it early.
             meeting_audio = MeetingAudio()
             meeting_audio.open()
             resources.callback(meeting_audio.close)
             print(f"[Webcam] Select the microphone 'VanishMic' ({MIC_SOURCE}) in the meeting app.")
-        if args.mode:
-            # Without the menu, use the first webcam that the system reports and English text.
-            cameras = list_cameras(limit=1)
-            choice = args.mode, cameras[0][0] if cameras else 0, "en"
-        else:
-            choice = choose_mode()
-        if choice is None:
-            return 0
-        mode, camera, language = choice
-        return run_camera(args, resources, mode, camera, language)
-
-
-def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera: int,
-               language: str = "en") -> int:
-    download_models(mode)
-    capture = open_camera(camera, args.width, args.height)
-    resources.callback(capture.release)
-    capture.set(cv2.CAP_PROP_FPS, args.fps)
-    segmenter, recognizer = create_tasks(mode)
-    resources.callback(segmenter.close)
-    resources.callback(recognizer.close)
-    log_sprite = load_log() if mode == "naruto" else None
-    vanish_sound = None
-    if mode in ("naruto", "goku", "peace"):
-        # The effect works without audio, so a missing audio device must not stop the app.
-        try:
-            vanish_sound = VanishSound(
-                {"naruto": SOUND_PATH, "goku": TELEPORT_SOUND, "peace": PEACE_SOUND}[mode]
-            )
-        except RuntimeError as error:
-            print(f"[Webcam] The audio is off: {error}")
-    if vanish_sound is not None:
-        resources.callback(vanish_sound.close)
-    resources.callback(cv2.destroyAllWindows)
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-    cv2.setWindowTitle(WINDOW_NAME, TEXT[language]["preview_title"])
-    cv2.resizeWindow(WINDOW_NAME, args.width, args.height)
-
-    state = AppState(
-        calibration_started=time.perf_counter(), fullscreen=args.fullscreen
-    )
-    if state.fullscreen:
-        set_fullscreen(True)
-
-    background: np.ndarray | None = None
-    background_samples: list[np.ndarray] = []
-    last_mask: np.ndarray | None = None
-    last_mask_at = float("-inf")
-    dissolve_field: np.ndarray | None = None
-    sparkle_noise: np.ndarray | None = None
-    teleport_field: np.ndarray | None = None
-    goku_hold = HoldTimer()
-    log_anchor: tuple[int, int, int] | None = None
-    log_cache: dict[int, np.ndarray] = {}
-    vanished_frame: np.ndarray | None = None
-    # The Peace mode keeps the first frame of each vanish, with its start time.
-    frozen: tuple[float, np.ndarray] | None = None
-    virtual_camera = None
-    virtual_camera_initialized = False
-    calibration_remaining = None
-    last_gesture_report = 0.0
-    started = time.perf_counter()
-    print("[Webcam] Move out of the camera view for 4 seconds. The app records the background.")
-    print("[Webcam] Keys in the window: SPACE new background, R reappear, V vanish, F full screen, Q quit.")
-
-    try:
-        while True:
-            ok, camera_frame = capture.read()
-            if not ok:
-                raise RuntimeError("The webcam stopped the supply of images.")
-
-            if not args.no_mirror:
-                camera_frame = cv2.flip(camera_frame, 1)
-
-            height, width = camera_frame.shape[:2]
-            if not virtual_camera_initialized:
-                virtual_camera = open_virtual_camera(args, width, height)
-                virtual_camera_initialized = True
-                if virtual_camera is not None:
-                    resources.callback(virtual_camera.close)
-            if mode == "normal" and (dissolve_field is None or dissolve_field.shape != (height, width)):
-                dissolve_field, sparkle_noise = make_dissolve_fields(height, width)
-            if mode == "goku" and (teleport_field is None or teleport_field.shape != (height, width)):
-                teleport_field = make_teleport_field(height, width)
-            now = time.perf_counter()
-
-            elapsed_ms = int((now - started) * 1000)
-            mp_image = None
-
-            if (
-                mode == "goku" and background is not None
-                and state.phase in ("ready", "vanished")
-                and now - state.last_gesture_check >= 0.08
-            ):
-                state.last_gesture_check = now
-                rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
-                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                pose = recognizer.detect(mp_image, elapsed_ms)
-                if args.gesture_debug and now - last_gesture_report >= 1.0:
-                    print(f"[Goku] face={recognizer.face_found}, fingers on forehead={pose}")
-                    last_gesture_report = now
-                if goku_hold.update(pose, now):
-                    state.phase = "goku_vanishing" if state.phase == "ready" else "goku_returning"
-                    state.vanish_started = now
-                    vanished_frame = None
-                    if vanish_sound:
-                        vanish_sound.play()
-
-            if state.phase == "calibrating":
-                elapsed = now - state.calibration_started
-                remaining = max(0, int(np.ceil(CALIBRATION_SECONDS - elapsed)))
-                if remaining != calibration_remaining:
-                    print(f"[Webcam] Background capture: {remaining} seconds.")
-                    calibration_remaining = remaining
-                if elapsed >= CALIBRATION_SECONDS - BACKGROUND_SAMPLE_SECONDS:
-                    background_samples.append(camera_frame.copy())
-                if elapsed >= CALIBRATION_SECONDS:
-                    if background_samples:
-                        stack = np.stack(background_samples[-18:], axis=0)
-                        background = np.median(stack, axis=0).astype(np.uint8)
-                    else:
-                        background = camera_frame.copy()
-                    background_samples.clear()
-                    state.phase = "ready"
-                    print("[Webcam] The background is ready. You can move back into the camera view.")
-                display = camera_frame
-
-            elif background is None:
-                state.phase = "calibrating"
-                state.calibration_started = now
-                display = camera_frame
-
-            elif state.phase == "vanished":
-                if vanished_frame is None:
-                    vanished_frame = background.copy()
-                    if mode == "naruto" and log_anchor is not None:
-                        overlay_log(vanished_frame, log_sprite, landed_log_anchor(log_anchor, height),
-                                    cache=log_cache)
-                display = vanished_frame
-
-            else:
-                mask = last_mask
-                if (
-                    state.phase == "ready" and mode != "goku"
-                    and now - state.last_gesture_check >=
-                    (0.08 if mode == "naruto" else GESTURE_INTERVAL_SECONDS)
-                ):
-                    state.last_gesture_check = now
-                    rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
-                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    if mode in ("normal", "peace"):
-                        name, score = recognize_gesture(recognizer, mp_image, elapsed_ms)
-                        if args.gesture_debug and now - last_gesture_report >= 1.0:
-                            print(
-                                f"[Gesture] {name}, score={score:.2f}, "
-                                f"crop={recognizer.preferred_crop or 'full'}, "
-                                f"rotation={recognizer.preferred_rotation or 0}"
-                            )
-                            last_gesture_report = now
-                        if start_vanish_on_gesture(state, name, score, now) and vanish_sound:
-                            vanish_sound.play()
-                    else:
-                        joined = recognizer.recognize_joined_hands(mp_image, elapsed_ms)
-                        if args.gesture_debug and now - last_gesture_report >= 1.0:
-                            print(f"[Hands] found={recognizer.last_hand_count}, "
-                                  f"joined={joined}, view={recognizer.preferred_view or 'full'}")
-                            last_gesture_report = now
-                        if start_naruto_on_join(state, joined, time.perf_counter()) and vanish_sound:
-                            vanish_sound.play()
-
-                if state.phase in ("vanishing", "naruto_vanishing", "goku_vanishing", "goku_returning"):
-                    # The normal dissolve updates the silhouette at 20 Hz. The Naruto
-                    # effect needs it only when the person is still visible.
-                    needs_mask = (
-                        (mode in ("normal", "goku") and (mask is None or now - last_mask_at >= 0.05))
-                        or (mode == "naruto" and (log_anchor is None or now - state.vanish_started < 0.13))
-                    )
-                    if needs_mask:
-                        if mp_image is None:
-                            rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
-                            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                        mask = person_mask(segmenter, mp_image, elapsed_ms, width, height)
-                        last_mask = mask
-                        last_mask_at = now
-                    if mode == "naruto" and log_anchor is None:
-                        log_anchor = substitution_anchor(mask)
-
-                if mode == "naruto" and state.phase == "naruto_vanishing":
-                    age = max(0.04, time.perf_counter() - state.vanish_started)
-                    display = render_substitution(
-                        camera_frame, background, mask, log_sprite, log_anchor, age, log_cache
-                    )
-                    if age >= EFFECT_SECONDS:
-                        state.phase = "vanished"
-                        vanished_frame = display
-                elif mode == "goku" and state.phase in ("goku_vanishing", "goku_returning"):
-                    age = now - state.vanish_started
-                    progress = min(1.0, age / GOKU_SECONDS)
-                    if state.phase == "goku_returning":
-                        progress = 1.0 - progress
-                    display = render_teleport(camera_frame, background, mask, teleport_field, progress)
-                    if age >= GOKU_SECONDS:
-                        state.phase = "vanished" if state.phase == "goku_vanishing" else "ready"
-                        vanished_frame = None
-                elif mode == "peace" and state.phase == "vanishing":
-                    if frozen is None or frozen[0] != state.vanish_started:
-                        frozen = (state.vanish_started, camera_frame.copy())
-                    progress = min(1.0, (time.perf_counter() - state.vanish_started) / PEACE_SECONDS)
-                    display = cv2.addWeighted(frozen[1], 1.0 - progress, background, progress, 0)
-                    if progress >= 1.0:
-                        state.phase = "vanished"
-                elif state.phase == "ready":
-                    display = camera_frame
-                else:
-                    progress = 0.0
-                    if state.phase == "vanishing" and state.vanish_started is not None:
-                        progress = min(
-                            1.0, (time.perf_counter() - state.vanish_started) / VANISH_SECONDS
-                        )
-                        if progress >= 1.0:
-                            state.phase = "vanished"
-                    display = apply_dissolve(
-                        camera_frame, background, mask, progress, dissolve_field, sparkle_noise
-                    )
-                    if state.phase == "vanished":
-                        vanished_frame = display
-
-            if virtual_camera is not None:
-                # Only the local preview is a mirror. Video call apps mirror the self-view themselves.
-                send_virtual_frame(virtual_camera, display if args.no_mirror else cv2.flip(display, 1))
-            cv2.imshow(WINDOW_NAME, display)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord("q"), 27):
-                break
-            if key == ord(" "):
-                state.phase = "calibrating"
-                state.calibration_started = now
-                state.vanish_started = None
-                log_anchor = None
-                last_mask = None
-                last_mask_at = float("-inf")
-                vanished_frame = None
-                background_samples.clear()
-                calibration_remaining = None
-                print("[Webcam] Move out of the camera view for 4 seconds. The app records the new background.")
-            elif key == ord("r") and mode == "goku" and state.phase == "vanished":
-                # In the Goku mode, R plays the teleport in reverse.
-                state.phase = "goku_returning"
-                state.vanish_started = time.perf_counter()
-                last_mask = None
-                if vanish_sound:
-                    vanish_sound.play()
-            elif key == ord("r"):
-                if background is not None:
-                    state.phase = "ready"
-                    state.vanish_started = None
-                    vanished_frame = None
-                    log_anchor = None
-                    last_mask = None
-                    last_mask_at = float("-inf")
-            elif key == ord("v") and background is not None:
-                state.phase = {"naruto": "naruto_vanishing", "goku": "goku_vanishing"}.get(mode, "vanishing")
-                state.vanish_started = time.perf_counter()
-                if vanish_sound:
-                    vanish_sound.play()
-                if mode == "naruto":
-                    log_anchor = None
-                vanished_frame = None
-            elif key == ord("f"):
-                state.fullscreen = not state.fullscreen
-                set_fullscreen(state.fullscreen)
-            if virtual_camera is not None:
-                virtual_camera.sleep_until_next_frame()
-    finally:
-        resources.close()
-
+        window = AppWindow(args, resources)
+        print("[Webcam] Click 'Capture background', then move out of the camera view for 4 seconds.")
+        print("[Webcam] Keys in the window: SPACE new background, R reappear, V vanish, F full screen, Q quit.")
+        window.run()
     return 0
 
 

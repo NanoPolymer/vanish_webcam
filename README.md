@@ -1,6 +1,6 @@
 # VanishCam — webcam disappearance effects
 
-Video is processed on your computer. It is neither recorded nor sent to a server. The preview window and virtual camera show only the video and effects, without overlaid menus, instructions, or text.
+Video is processed on your computer. It is neither recorded nor sent to a server. The video in the preview window and the virtual camera shows only the video and effects, without overlaid menus, instructions, or text. The controls sit in a side panel next to the video.
 
 For step-by-step instructions in English and Italian, see the [user guide](USER_GUIDE_EN_IT.md).
 
@@ -17,8 +17,8 @@ The published EXE may predate the Goku mode. To use them now, run the local scri
 ## Getting started
 
 1. Double-click `AVVIA_LOCALE.bat`.
-2. In the start menu, choose **Normal Vanish**, **Naruto Vanish**, **Goku Vanish**, or **Peace Out** with the mouse or the `1`, `2`, `3`, and `4` keys.
-3. Step out of the camera frame for 4 seconds while the background is captured. The terminal tells you when you can step back in.
+2. In the side panel, choose the **Webcam** and the **Effect** (**Normal Vanish**, **Naruto Vanish**, **Goku Vanish**, or **Peace Out**). You can change both at any time while the app runs.
+3. Click **Capture background** and step out of the camera frame. The button turns orange and counts down 4 seconds. When it shows **New background**, step back in.
 
 **Normal Vanish:** Raise your index and middle fingers in a V sign. The dissolve starts as soon as the gesture is recognized and lasts about 1.8 seconds.
 
@@ -30,19 +30,20 @@ The teleport sound is not part of the repository. To hear it, put your own MP3 a
 
 **Naruto Vanish:** Bring your palms together in front of the webcam, with your fingers side by side rather than interlaced. Keep both hands visible. As soon as the gesture is recognized, you vanish in a cloud of smoke and a wooden log appears, falls, and remains visible until you press `R`. No microphone is needed. Naruto mode uses `hand_landmarker.task` to track both hands. `assets/vanish.MP3` plays through your computer speakers when the disappearance starts, including when triggered with `V`. You can trigger it again after pressing `R`.
 
-To start a mode without the menu:
+To start with a different effect selected:
 
 ```powershell
 local_app\AVVIA_LOCALE.bat --mode naruto
 local_app\AVVIA_LOCALE.bat --mode normal
 local_app\AVVIA_LOCALE.bat --mode goku
+local_app\AVVIA_LOCALE.bat --mode peace
 ```
 
 ## Virtual camera and OBS
 
 If [OBS Studio](https://obsproject.com/) is installed, the app automatically tries to open **OBS Virtual Camera**. The terminal shows the device name. Use `AVVIA_VIRTUAL.bat` to require a virtual camera. Select **OBS Virtual Camera** in the app that will receive the video. OBS's virtual camera must be stopped while this app is producing its output.
 
-To use the effect in an OBS scene, run `AVVIA_OBS.bat`, add a **Window Capture** source, select **Webcam - Preview** (**Webcam - Anteprima** if you chose Italian), and then start the virtual camera from OBS. Alternatively, use [Unity Capture](https://github.com/schellingb/UnityCapture) as a separate virtual video source:
+To use the effect in an OBS scene, run `AVVIA_OBS.bat`, add a **Window Capture** source, select **VanishCam**, and then start the virtual camera from OBS. Press `F` for full screen to hide the side panel, or crop it away in OBS. Alternatively, use [Unity Capture](https://github.com/schellingb/UnityCapture) as a separate virtual video source:
 
 ```powershell
 local_app\AVVIA_VIRTUAL.bat --virtual-backend unitycapture
@@ -62,19 +63,17 @@ The app creates a virtual microphone, **VanishMic**, that mixes your default mic
 
 ## Controls
 
-- `SPACE`: capture a new background.
-- `R`: make the person reappear.
-- `V`: manually start the selected mode's effect.
-- `F`: toggle fullscreen.
-- `Q` or `ESC`: quit and release the cameras.
+- `SPACE` or **Capture background**: capture a new background.
+- `R` or **Reappear**: make the person reappear.
+- `V` or **Vanish**: manually start the selected effect.
+- `F` or **Full screen**: toggle fullscreen. Full screen hides the side panel. `ESC` leaves it.
+- `Q` or closing the window: quit and release the cameras.
 
 In Goku mode, `R` plays the reverse teleport.
 
-Choose the webcam in the start menu: click the **Webcam** row or press `C` to switch to the next one.
+When you change the webcam, the old background no longer fits, so capture a new one. When you change the effect, the background stays.
 
-The menu and window titles are in English by default. Click the **Language** row or press `L` to switch to Italian. Terminal messages are always in English.
-
-With `--mode`, the menu is skipped, and the app uses the first webcam and English.
+The side panel is in English by default. Choose **Italiano** under **Language** to switch to Italian. Terminal messages are always in English.
 
 You can change the resolution and maximum virtual-output FPS:
 
