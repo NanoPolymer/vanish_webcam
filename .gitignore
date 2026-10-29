@@ -8,3 +8,6 @@ models/
 /build/
 /dist/*
 !/dist/VanishCam.exe
+
+# Third-party sound, local only. Do not publish it.
+assets/teleport.MP3

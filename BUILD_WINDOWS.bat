@@ -17,11 +17,12 @@ if errorlevel 1 (
 
 if not exist "models\gesture_recognizer.task" goto :models
 if not exist "models\selfie_segmenter_landscape.tflite" goto :models
+if not exist "models\blaze_face_short_range.tflite" goto :models
 goto :build
 
 :models
 echo The script downloads the necessary MediaPipe models.
-py -3 -c "from vanish_cam import download_models; download_models()"
+py -3 -c "from vanish_cam import MODE_MODELS, download_models; [download_models(m) for m in MODE_MODELS]"
 if errorlevel 1 goto :error
 
 :build

@@ -25,12 +25,20 @@ try:
         load_log, overlay_log, render_substitution, substitution_anchor,
     )
     from .vanish_sound import SOUND_PATH, VanishSound
+    from .goku_effect import (
+        EFFECT_SECONDS as GOKU_SECONDS, HoldTimer, fingers_on_forehead,
+        make_teleport_field, render_teleport,
+    )
 except ImportError:
     from naruto_effect import (
         EFFECT_SECONDS, joined_hands_from_landmarks, landed_log_anchor,
         load_log, overlay_log, render_substitution, substitution_anchor,
     )
     from vanish_sound import SOUND_PATH, VanishSound
+    from goku_effect import (
+        EFFECT_SECONDS as GOKU_SECONDS, HoldTimer, fingers_on_forehead,
+        make_teleport_field, render_teleport,
+    )
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -50,6 +58,7 @@ TEXT = {
         "camera_detail": "Click or press C to change the webcam",
         "normal_detail": "V sign  /  dissolve",
         "naruto_detail": "Joined hands  /  log and smoke",
+        "goku_detail": "Two fingers on the forehead for 1 s  /  teleport",
         "preview_title": "Webcam - Preview",
     },
     "it": {
@@ -60,6 +69,7 @@ TEXT = {
         "camera_detail": "Clic o C per cambiare webcam",
         "normal_detail": "Segno a V  /  dissolvenza",
         "naruto_detail": "Mani unite  /  tronco e fumo",
+        "goku_detail": "Due dita sulla fronte per 1 s  /  teletrasporto",
         "preview_title": "Webcam - Anteprima",
     },
 }
@@ -67,6 +77,9 @@ TEXT = {
 SEGMENTER_MODEL = MODEL_DIR / "selfie_segmenter_landscape.tflite"
 GESTURE_MODEL = MODEL_DIR / "gesture_recognizer.task"
 HAND_MODEL = APP_DIR / "hand_landmarker.task"
+FACE_MODEL = MODEL_DIR / "blaze_face_short_range.tflite"
+# The repository does not contain this sound. Without it, the Goku mode has no audio.
+TELEPORT_SOUND = APP_DIR / "assets" / "teleport.MP3"
 
 MODEL_URLS = {
     SEGMENTER_MODEL: (
@@ -78,6 +91,16 @@ MODEL_URLS = {
         "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/"
         "gesture_recognizer/float16/1/gesture_recognizer.task"
     ),
+    FACE_MODEL: (
+        "https://storage.googleapis.com/mediapipe-models/face_detector/"
+        "blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
+    ),
+}
+# The models that each mode needs.
+MODE_MODELS = {
+    "normal": (SEGMENTER_MODEL, GESTURE_MODEL),
+    "naruto": (SEGMENTER_MODEL,),
+    "goku": (SEGMENTER_MODEL, FACE_MODEL),
 }
 
 CALIBRATION_SECONDS = 4.0
@@ -104,7 +127,7 @@ def positive_fps(value: str) -> float:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Show a vanish effect on the webcam: Normal Vanish or Naruto Vanish."
+        description="Show a vanish effect on the webcam: Normal Vanish, Naruto Vanish or Goku Vanish."
     )
     parser.add_argument("--width", type=int, default=960, help="Video width in pixels")
     parser.add_argument("--height", type=int, default=540, help="Video height in pixels")
@@ -125,7 +148,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--virtual-device", help="Name of the virtual device")
     parser.add_argument(
-        "--mode", choices=("normal", "naruto"),
+        "--mode", choices=("normal", "naruto", "goku"),
         help="Skip the start menu and start the selected mode",
     )
     parser.add_argument(
@@ -174,13 +197,14 @@ def choose_mode() -> tuple[str, int, str] | None:
     camera = [0]
     language = [0]
     # Each row has an action, a key and a top position in pixels.
-    rows = (("language", "l", 120), ("camera", "c", 240), ("normal", "1", 360), ("naruto", "2", 480))
+    rows = (("language", "l", 110), ("camera", "c", 210), ("normal", "1", 310),
+            ("naruto", "2", 410), ("goku", "3", 510))
 
     def text(key: str) -> str:
         return TEXT[LANGUAGES[language[0]]][key]
 
     def draw() -> np.ndarray:
-        window = np.zeros((600, 700, 3), dtype=np.uint8)
+        window = np.zeros((620, 700, 3), dtype=np.uint8)
         window[:] = (26, 29, 34)
         cv2.putText(window, text("menu_heading"), (68, 88),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.85, (236, 239, 242), 2, cv2.LINE_AA)
@@ -190,13 +214,14 @@ def choose_mode() -> tuple[str, int, str] | None:
             "camera": f"C  WEBCAM {index}: {name[:30]}",
             "normal": "1  NORMAL VANISH",
             "naruto": "2  NARUTO VANISH",
+            "goku": "3  GOKU VANISH",
         }
         for action, _, top in rows:
-            cv2.rectangle(window, (65, top), (635, top + 94), (48, 54, 62), -1, cv2.LINE_AA)
-            cv2.rectangle(window, (65, top), (635, top + 94), (111, 142, 153), 2, cv2.LINE_AA)
-            cv2.putText(window, headings[action], (90, top + 38),
+            cv2.rectangle(window, (65, top), (635, top + 80), (48, 54, 62), -1, cv2.LINE_AA)
+            cv2.rectangle(window, (65, top), (635, top + 80), (111, 142, 153), 2, cv2.LINE_AA)
+            cv2.putText(window, headings[action], (90, top + 34),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.77, (240, 245, 247), 2, cv2.LINE_AA)
-            cv2.putText(window, text(f"{action}_detail"), (90, top + 68),
+            cv2.putText(window, text(f"{action}_detail"), (90, top + 62),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.53, (179, 195, 201), 1, cv2.LINE_AA)
         return window
 
@@ -212,7 +237,7 @@ def choose_mode() -> tuple[str, int, str] | None:
     def on_mouse(event, x, y, flags, userdata):
         if event == cv2.EVENT_LBUTTONUP and 65 <= x <= 635:
             for action, _, top in rows:
-                if top <= y <= top + 94:
+                if top <= y <= top + 80:
                     activate(action)
 
     cv2.namedWindow(MENU_WINDOW, cv2.WINDOW_AUTOSIZE)
@@ -269,9 +294,8 @@ def send_virtual_frame(camera, frame: np.ndarray) -> None:
 
 def download_models(mode: str = "normal") -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    for destination, url in MODEL_URLS.items():
-        if mode == "naruto" and destination == GESTURE_MODEL:
-            continue
+    for destination in MODE_MODELS[mode]:
+        url = MODEL_URLS[destination]
         if destination.exists() and destination.stat().st_size > 100_000:
             continue
 
@@ -321,14 +345,16 @@ def open_camera(index: int, width: int, height: int) -> cv2.VideoCapture:
     return capture
 
 
-def create_tasks(mode: str = "normal") -> tuple[vision.ImageSegmenter, MultiViewGestureRecognizer | MultiViewHandLandmarker]:
+def create_tasks(mode: str = "normal") -> tuple[
+    vision.ImageSegmenter, MultiViewGestureRecognizer | MultiViewHandLandmarker | GokuGestureDetector
+]:
     segmenter_options = vision.ImageSegmenterOptions(
         base_options=python.BaseOptions(model_asset_path=str(SEGMENTER_MODEL)),
         running_mode=vision.RunningMode.VIDEO,
         output_confidence_masks=True,
         output_category_mask=False,
     )
-    if mode == "naruto":
+    if mode in ("naruto", "goku"):
         if not HAND_MODEL.is_file():
             raise RuntimeError(f"Cannot find the hand model: {HAND_MODEL}")
         options = vision.HandLandmarkerOptions(
@@ -360,6 +386,17 @@ def create_tasks(mode: str = "normal") -> tuple[vision.ImageSegmenter, MultiView
 
     segmenter = vision.ImageSegmenter.create_from_options(segmenter_options)
     try:
+        if mode == "goku":
+            hands = vision.HandLandmarker.create_from_options(options)
+            try:
+                faces = vision.FaceDetector.create_from_options(vision.FaceDetectorOptions(
+                    base_options=python.BaseOptions(model_asset_path=str(FACE_MODEL)),
+                    running_mode=vision.RunningMode.VIDEO,
+                ))
+            except Exception:
+                hands.close()
+                raise
+            return segmenter, GokuGestureDetector(hands, faces)
         primary = task_class.create_from_options(options)
         try:
             alternate = task_class.create_from_options(
@@ -678,6 +715,34 @@ class MultiViewHandLandmarker:
             self.alternate.close()
 
 
+class GokuGestureDetector:
+    """Find two fingers on the forehead with the hand model and the face model."""
+
+    def __init__(self, hands, faces):
+        self.hands = hands
+        self.faces = faces
+        self.face_found = False
+
+    def detect(self, image: mp.Image, timestamp_ms: int) -> bool:
+        hands = self.hands.detect_for_video(image, timestamp_ms).hand_landmarks
+        detections = self.faces.detect_for_video(image, timestamp_ms).detections
+        self.face_found = bool(detections)
+        if not detections:
+            return False
+        box = detections[0].bounding_box
+        # Keypoints 0 and 1 are the eyes. Their positions are normalized.
+        eyes = detections[0].keypoints[:2]
+        eye_y = sum(point.y for point in eyes) / len(eyes) * image.height if eyes else box.origin_y + box.height * 0.4
+        face = (box.origin_x, box.origin_y, box.width, box.height, eye_y)
+        return fingers_on_forehead(hands, face, image.width, image.height)
+
+    def close(self) -> None:
+        try:
+            self.hands.close()
+        finally:
+            self.faces.close()
+
+
 def recognize_gesture(
     recognizer: MultiViewGestureRecognizer,
     image: mp.Image,
@@ -712,13 +777,13 @@ def set_fullscreen(enabled: bool) -> None:
 
 def self_test() -> int:
     """Make sure that the bundled resources and the models are available. Do not open a webcam."""
-    required = (SEGMENTER_MODEL, GESTURE_MODEL, HAND_MODEL, SOUND_PATH)
+    required = (SEGMENTER_MODEL, GESTURE_MODEL, HAND_MODEL, FACE_MODEL, SOUND_PATH)
     missing = [path.name for path in required if not path.is_file()]
     if missing:
         raise RuntimeError(f"These resources are missing: {', '.join(missing)}")
     load_log()
     import pygame.mixer  # The distributed build must contain its MP3 decoder.
-    for mode in ("normal", "naruto"):
+    for mode in MODE_MODELS:
         segmenter, recognizer = create_tasks(mode)
         try:
             recognizer.close()
@@ -756,10 +821,10 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
     resources.callback(recognizer.close)
     log_sprite = load_log() if mode == "naruto" else None
     vanish_sound = None
-    if mode == "naruto":
+    if mode in ("naruto", "goku"):
         # The effect works without audio, so a missing audio device must not stop the app.
         try:
-            vanish_sound = VanishSound()
+            vanish_sound = VanishSound(SOUND_PATH if mode == "naruto" else TELEPORT_SOUND)
         except RuntimeError as error:
             print(f"[Webcam] The audio is off: {error}")
     if vanish_sound is not None:
@@ -781,6 +846,8 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
     last_mask_at = float("-inf")
     dissolve_field: np.ndarray | None = None
     sparkle_noise: np.ndarray | None = None
+    teleport_field: np.ndarray | None = None
+    goku_hold = HoldTimer()
     log_anchor: tuple[int, int, int] | None = None
     log_cache: dict[int, np.ndarray] = {}
     vanished_frame: np.ndarray | None = None
@@ -809,10 +876,31 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                     resources.callback(virtual_camera.close)
             if mode == "normal" and (dissolve_field is None or dissolve_field.shape != (height, width)):
                 dissolve_field, sparkle_noise = make_dissolve_fields(height, width)
+            if mode == "goku" and (teleport_field is None or teleport_field.shape != (height, width)):
+                teleport_field = make_teleport_field(height, width)
             now = time.perf_counter()
 
             elapsed_ms = int((now - started) * 1000)
             mp_image = None
+
+            if (
+                mode == "goku" and background is not None
+                and state.phase in ("ready", "vanished")
+                and now - state.last_gesture_check >= 0.08
+            ):
+                state.last_gesture_check = now
+                rgb = cv2.cvtColor(camera_frame, cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                pose = recognizer.detect(mp_image, elapsed_ms)
+                if args.gesture_debug and now - last_gesture_report >= 1.0:
+                    print(f"[Goku] face={recognizer.face_found}, fingers on forehead={pose}")
+                    last_gesture_report = now
+                if goku_hold.update(pose, now):
+                    state.phase = "goku_vanishing" if state.phase == "ready" else "goku_returning"
+                    state.vanish_started = now
+                    vanished_frame = None
+                    if vanish_sound:
+                        vanish_sound.play()
 
             if state.phase == "calibrating":
                 elapsed = now - state.calibration_started
@@ -849,7 +937,7 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
             else:
                 mask = last_mask
                 if (
-                    state.phase == "ready"
+                    state.phase == "ready" and mode != "goku"
                     and now - state.last_gesture_check >=
                     (0.08 if mode == "naruto" else GESTURE_INTERVAL_SECONDS)
                 ):
@@ -875,11 +963,11 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                         if start_naruto_on_join(state, joined, time.perf_counter()) and vanish_sound:
                             vanish_sound.play()
 
-                if state.phase in ("vanishing", "naruto_vanishing"):
+                if state.phase in ("vanishing", "naruto_vanishing", "goku_vanishing", "goku_returning"):
                     # The normal dissolve updates the silhouette at 20 Hz. The Naruto
                     # effect needs it only when the person is still visible.
                     needs_mask = (
-                        (mode == "normal" and (mask is None or now - last_mask_at >= 0.05))
+                        (mode in ("normal", "goku") and (mask is None or now - last_mask_at >= 0.05))
                         or (mode == "naruto" and (log_anchor is None or now - state.vanish_started < 0.13))
                     )
                     if needs_mask:
@@ -900,6 +988,15 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                     if age >= EFFECT_SECONDS:
                         state.phase = "vanished"
                         vanished_frame = display
+                elif mode == "goku" and state.phase in ("goku_vanishing", "goku_returning"):
+                    age = now - state.vanish_started
+                    progress = min(1.0, age / GOKU_SECONDS)
+                    if state.phase == "goku_returning":
+                        progress = 1.0 - progress
+                    display = render_teleport(camera_frame, background, mask, teleport_field, progress)
+                    if age >= GOKU_SECONDS:
+                        state.phase = "vanished" if state.phase == "goku_vanishing" else "ready"
+                        vanished_frame = None
                 elif state.phase == "ready":
                     display = camera_frame
                 else:
@@ -935,6 +1032,13 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                 background_samples.clear()
                 calibration_remaining = None
                 print("[Webcam] Move out of the camera view for 4 seconds. The app records the new background.")
+            elif key == ord("r") and mode == "goku" and state.phase == "vanished":
+                # In the Goku mode, R plays the teleport in reverse.
+                state.phase = "goku_returning"
+                state.vanish_started = time.perf_counter()
+                last_mask = None
+                if vanish_sound:
+                    vanish_sound.play()
             elif key == ord("r"):
                 if background is not None:
                     state.phase = "ready"
@@ -944,11 +1048,11 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
                     last_mask = None
                     last_mask_at = float("-inf")
             elif key == ord("v") and background is not None:
-                state.phase = "naruto_vanishing" if mode == "naruto" else "vanishing"
+                state.phase = {"naruto": "naruto_vanishing", "goku": "goku_vanishing"}.get(mode, "vanishing")
                 state.vanish_started = time.perf_counter()
+                if vanish_sound:
+                    vanish_sound.play()
                 if mode == "naruto":
-                    if vanish_sound:
-                        vanish_sound.play()
                     log_anchor = None
                 vanished_frame = None
             elif key == ord("f"):

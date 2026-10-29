@@ -199,7 +199,7 @@ class NarutoVideoLoopTests(unittest.TestCase):
 
     def test_effect_is_sent_to_preview_and_virtual_camera(self):
         sound = Mock()
-        self.run_naruto(lambda: sound)
+        self.run_naruto(lambda path: sound)
         sound.play.assert_called_once()
         sound.close.assert_called_once()
 

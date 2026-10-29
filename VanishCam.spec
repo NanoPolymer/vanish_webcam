@@ -10,6 +10,7 @@ resources = [
     (root / "hand_landmarker.task", "."),
     (root / "models" / "gesture_recognizer.task", "models"),
     (root / "models" / "selfie_segmenter_landscape.tflite", "models"),
+    (root / "models" / "blaze_face_short_range.tflite", "models"),
     (root / "assets" / "substitution_log.png", "assets"),
     (root / "assets" / "vanish.MP3", "assets"),
 ]
@@ -17,7 +18,10 @@ missing = [str(path) for path, _ in resources if not path.is_file()]
 if not icon_file.is_file():
     missing.append(str(icon_file))
 if missing:
-    raise SystemExit("File necessari alla build mancanti:\n" + "\n".join(missing))
+    raise SystemExit("These files for the build are missing:\n" + "\n".join(missing))
+# The teleport sound is optional and local only. Add it when it is available.
+if (root / "assets" / "teleport.MP3").is_file():
+    resources.append((root / "assets" / "teleport.MP3", "assets"))
 
 a = Analysis(
     [str(root / "vanish_cam.py")],
