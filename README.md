@@ -24,7 +24,7 @@ The published EXE may predate the Goku mode. To use them now, run the local scri
 
 **Particles:** Make the same V sign as in Normal Vanish. Your silhouette breaks into small colored fragments that drift sideways as if carried by the wind. The effect lasts about 2.1 seconds. It captures your silhouette once when the effect starts to keep the video smooth.
 
-**Goku:** Hold your index and middle fingers straight and together against your forehead for 1 second. Vertical slits open in your silhouette, the background shows through them, and you teleport away in about 0.65 seconds. To reappear, lower your hand, then repeat the gesture for another 1 second. The return uses the reverse effect. If you break the pose, the countdown starts over. `V` and `R` also work: `R` plays the return effect. To troubleshoot the gesture, pass `--gesture-debug`. No text is overlaid on the video.
+**Goku:** Hold your index and middle fingers straight and together against your forehead for 1 second. Vertical slits open in your silhouette, the background shows through them, and you teleport away in about 0.4 seconds. To reappear, lower your hand, then repeat the gesture for another 1 second. The return uses the reverse effect. If you break the pose, the countdown starts over. `V` and `R` also work: `R` plays the return effect. To troubleshoot the gesture, pass `--gesture-debug`. No text is overlaid on the video.
 
 The teleport sound is not part of the repository. To hear it, put your own MP3 at `assets/teleport.MP3` (the file is in `.gitignore`). Without it, Goku mode runs without sound.
 

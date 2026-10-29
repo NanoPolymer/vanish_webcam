@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 
-EFFECT_SECONDS = 0.65
+EFFECT_SECONDS = 0.4
 HOLD_SECONDS = 1.0
 
 
@@ -88,7 +88,7 @@ def make_teleport_field(height: int, width: int, seed: int = 4721) -> np.ndarray
     field = np.empty((height, width), dtype=np.float32)
     x = 0
     while x < width:
-        stripe = int(rng.integers(2, max(3, width // 60)))
+        stripe = int(rng.integers(1, max(2, width // 160)))
         start = rng.uniform(0.0, 0.7)
         center = rng.uniform(0.0, height)
         growth = rng.uniform(0.4, 1.1)
