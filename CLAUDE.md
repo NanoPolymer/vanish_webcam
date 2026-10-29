@@ -32,7 +32,12 @@ This repository is a fork of `Nicovic17/vanish_webcam`. The `origin` remote is t
 ## Assets
 
 - `assets/teleport.MP3` and `assets/peace.mp3` are third-party sounds. They are in `.gitignore`. Do not commit them. Without them, the Goku mode and the Peace mode have no sound.
+- To make `assets/peace.mp3` again, download https://www.youtube.com/watch?v=MTO6ZKheD4A with `uvx yt-dlp -x --audio-format mp3`. Then cut it with `ffmpeg -ss 1.70 -to 3.95 -af "afade=t=out:st=1.95:d=0.3"`. The full file has a click at the start and a loud crash at the end.
 - `MODE_SOUNDS` in `vanish_cam.py` gives the sound for each mode.
+
+## Known problems
+
+- When no hand is visible, a gesture check takes approximately 32 ms (1 video view and 3 image retries). The check occurs each 140 ms, and the video stutters. Possible fixes: 1 retry view for each check, or a worker thread.
 - The app downloads the MediaPipe models to `models/` on the first start. `MODE_MODELS` in `vanish_cam.py` gives the models for each mode.
 
 ## Meeting audio (checkbox or `--meeting-audio`)
