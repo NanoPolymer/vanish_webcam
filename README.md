@@ -77,7 +77,9 @@ The side panel is in English by default. Choose **Italiano** under **Language** 
 
 Choose the resolution and frame rate in the **Video mode** dropdown. On Linux, the list shows the modes your webcam supports (30 and 60 fps per size, MJPG preferred). On other systems, it shows usual modes. A change to a different size removes the background, so capture a new one.
 
-The virtual camera keeps the size of the first video mode, and it sends at most `--fps` frames per second (default 30). To pick the starting mode and the output rate, pass:
+The virtual camera follows the video mode: it gets the same size and frame rate. While an app reads the virtual camera, the driver cannot change its size. Then the virtual camera keeps its old size and frame rate, the video is scaled to fit, and the terminal tells you. Close the apps that use the virtual camera, then select the video mode again.
+
+To pick the video mode at start, pass the size and the highest frame rate:
 
 ```powershell
 local_app\AVVIA_LOCALE.bat --width 1280 --height 720 --fps 60

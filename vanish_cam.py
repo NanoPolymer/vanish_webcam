@@ -181,7 +181,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-mirror", action="store_true", help="Do not mirror the webcam image"
     )
-    parser.add_argument("--fps", type=positive_fps, default=30.0, help="Maximum FPS of the virtual output (default: 30)")
+    parser.add_argument("--fps", type=positive_fps, default=30.0, help="Highest FPS of the video mode at start (default: 30). The virtual output uses the FPS of the video mode.")
     parser.add_argument(
         "--virtual-camera", action=argparse.BooleanOptionalAction, default=None,
         help="Require the virtual webcam. By default, the app uses it when it is available. --no-virtual-camera disables it.",
@@ -235,14 +235,15 @@ def list_cameras(limit: int = 10) -> list[tuple[int, str]]:
     return cameras
 
 
-def open_virtual_camera(args: argparse.Namespace, width: int, height: int):
+def open_virtual_camera(args: argparse.Namespace, width: int, height: int, fps: float | None = None):
+    fps = fps or args.fps
     if args.virtual_camera is False:
         return None
     try:
         import pyvirtualcam
 
         camera = pyvirtualcam.Camera(
-            width=width, height=height, fps=args.fps,
+            width=width, height=height, fps=fps,
             fmt=pyvirtualcam.PixelFormat.BGR,
             backend=args.virtual_backend, device=args.virtual_device,
         )
@@ -258,8 +259,29 @@ def open_virtual_camera(args: argparse.Namespace, width: int, height: int):
             raise RuntimeError(message) from error
         print(f"[Webcam] {message}\n[Webcam] The app continues with the local preview only.")
         return None
-    print(f"[Webcam] The virtual output is active: {camera.device} ({width}x{height}, maximum {args.fps:g} FPS)")
+    print(f"[Webcam] The virtual output is active: {camera.device} ({width}x{height}, maximum {fps:g} FPS)")
     return camera
+
+
+def virtual_output_size(device: str) -> tuple[int, int] | None:
+    """Return the size that a v4l2loopback device really has, or None if the app cannot read it.
+
+    While an app reads the device, the driver keeps the old size, but pyvirtualcam does not report an error.
+    """
+    if not sys.platform.startswith("linux") or not str(device).startswith("/dev/video"):
+        return None
+    import fcntl
+    buffer = bytearray(208)
+    struct.pack_into("<I", buffer, 0, 1)  # V4L2_BUF_TYPE_VIDEO_CAPTURE: the side that the apps read.
+    try:
+        handle = os.open(device, os.O_RDWR | os.O_NONBLOCK)
+        try:
+            fcntl.ioctl(handle, VIDIOC_G_FMT, buffer)
+        finally:
+            os.close(handle)
+    except OSError:
+        return None
+    return struct.unpack_from("<II", buffer, 8)
 
 
 def send_virtual_frame(camera, frame: np.ndarray) -> None:
@@ -309,6 +331,7 @@ def _v4l2_request(number: int, size: int) -> int:
 VIDIOC_ENUM_FMT = _v4l2_request(2, 64)
 VIDIOC_ENUM_FRAMESIZES = _v4l2_request(74, 44)
 VIDIOC_ENUM_FRAMEINTERVALS = _v4l2_request(75, 52)
+VIDIOC_G_FMT = _v4l2_request(4, 208)
 V4L2_DISCRETE = 1
 VIDEO_FORMATS = ("MJPG", "YUYV")
 # ponytail: other systems give no format list to OpenCV. These usual modes cover most webcams.
@@ -1143,6 +1166,9 @@ class AppWindow:
         self.capture: cv2.VideoCapture | None = None
         self.virtual_camera = None
         self.virtual_camera_initialized = False
+        # The size and fps of the virtual output, and the last settings that the driver refused.
+        self.virtual_settings: tuple[int, int, float] | None = None
+        self.virtual_refused: tuple[int, int, float] | None = None
         self.photo = None
         self.status_override: str | None = None
         self.engine = VanishEngine(args)
@@ -1298,6 +1324,7 @@ class AppWindow:
 
     def select_video_mode(self, position: int) -> None:
         old = self.video_mode
+        self.virtual_refused = None
         self.open_camera(self.video_modes[position])
         if old is None or old[1:3] != self.video_modes[position][1:3]:
             # The background must have the size of the new frames.
@@ -1425,6 +1452,31 @@ class AppWindow:
             self.canvas.itemconfigure(self.image_item, image=self.photo)
         self.canvas.coords(self.image_item, width // 2, height // 2)
 
+    def switch_virtual_camera(self, wanted: tuple[int, int, float]) -> None:
+        """Open the virtual output again with the size and fps of the video mode.
+
+        The driver can refuse a new format while an app reads the output. Then use the old settings again.
+        """
+        old = self.virtual_settings
+        self.close_virtual_camera()
+        for settings in (wanted, old):
+            try:
+                self.virtual_camera = open_virtual_camera(self.args, *settings)
+            except RuntimeError as error:
+                print(f"[Webcam] {error}")
+                continue
+            if self.virtual_camera is not None:
+                actual = virtual_output_size(self.virtual_camera.device)
+                if actual is not None and actual != settings[:2]:
+                    self.close_virtual_camera()
+                    continue
+                self.virtual_settings = settings
+                if settings != wanted:
+                    self.virtual_refused = wanted
+                    print("[Webcam] The virtual output keeps its old size and FPS. "
+                          "Close the apps that use it, then select the video mode again.")
+                return
+
     def tick(self) -> None:
         """Process one webcam frame. Tk calls this function again after each frame."""
         if self.capture is None:
@@ -1441,9 +1493,14 @@ class AppWindow:
             camera_frame = cv2.flip(camera_frame, 1)
         now = time.perf_counter()
         display = self.engine.process(camera_frame, now)
+        fps = self.video_mode[3] if self.video_mode else self.args.fps
+        wanted = (display.shape[1], display.shape[0], fps)
         if not self.virtual_camera_initialized:
-            self.virtual_camera = open_virtual_camera(self.args, display.shape[1], display.shape[0])
+            self.virtual_camera = open_virtual_camera(self.args, *wanted)
+            self.virtual_settings = wanted
             self.virtual_camera_initialized = True
+        elif self.virtual_camera is not None and wanted not in (self.virtual_settings, self.virtual_refused):
+            self.switch_virtual_camera(wanted)
         if self.virtual_camera is not None:
             # Only the local preview is a mirror. Video call apps mirror the self-view themselves.
             send_virtual_frame(self.virtual_camera, display if self.args.no_mirror else cv2.flip(display, 1))

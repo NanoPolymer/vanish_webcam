@@ -207,7 +207,8 @@ class WindowTests(unittest.TestCase):
             mocks.enter_context(patch.object(app, "list_video_modes", return_value=[
                 ("MJPG", 1280, 720, 30.0), ("MJPG", 40, 24, 30.0), ("YUYV", 40, 24, 60.0)]))
             opening = mocks.enter_context(patch.object(app, "open_camera", return_value=capture))
-            mocks.enter_context(patch.object(app, "open_virtual_camera", return_value=virtual))
+            opening_virtual = mocks.enter_context(patch.object(app, "open_virtual_camera", return_value=virtual))
+            real_size = mocks.enter_context(patch.object(app, "virtual_output_size", return_value=None))
             mocks.enter_context(patch.object(app, "recognize_gesture", return_value=("No_Hand", 0.0)))
             engine_mocks = ExitStack()
             mocks.enter_context(engine_mocks)
@@ -243,14 +244,33 @@ class WindowTests(unittest.TestCase):
                 window.select_video_mode(2)  # Other size: the background is removed.
                 self.assertEqual(opening.call_args.args, (3, 40, 24, "YUYV", 60.0))
                 self.assertEqual(window.engine.state.phase, "no_background")
+                window.tick()  # The virtual output follows the video mode.
+                self.assertEqual(opening_virtual.call_args.args[1:], (40, 24, 60.0))
+                self.assertEqual(virtual.close.call_count, 1)
                 window.capture_background()
+                opening_virtual.side_effect = [None, virtual]  # The driver refuses 30 fps.
                 window.select_video_mode(1)  # Same size: the capture continues.
                 self.assertEqual(window.engine.state.phase, "calibrating")
+                window.tick()
+                window.tick()  # No new attempt for the refused settings.
+                self.assertEqual(opening_virtual.call_count, 4)
+                self.assertEqual(opening_virtual.call_args.args[1:], (40, 24, 60.0))
+                self.assertEqual(window.virtual_settings, (40, 24, 60.0))
+                # An app reads the output, so the driver keeps the old size without an error.
+                opening_virtual.side_effect = None
+                real_size.side_effect = [(40, 24), (40, 24)]
+                frame_big = np.zeros((48, 80, 3), np.uint8)
+                capture.read.return_value = (True, frame_big)
+                window.select_video_mode(0)
+                window.tick()
+                self.assertEqual(window.virtual_settings, (40, 24, 60.0))
+                self.assertEqual(window.virtual_refused, (80, 48, 30.0))
+                self.assertEqual(virtual.send.call_args.args[0].shape, (24, 40, 3))  # Scaled to the old size.
                 window.select_camera(1)
                 self.assertEqual(opening.call_args.args[0], 5)
                 self.assertEqual(window.engine.state.phase, "no_background")
-            self.assertEqual(capture.release.call_count, 4)
-            virtual.close.assert_called_once()
+            self.assertEqual(capture.release.call_count, 5)
+            self.assertEqual(virtual.close.call_count, 5)
             for task in tasks:
                 task.close.assert_called_once()
 
