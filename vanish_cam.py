@@ -670,7 +670,13 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str) -> int
     resources.callback(segmenter.close)
     resources.callback(recognizer.close)
     log_sprite = load_log() if mode == "naruto" else None
-    vanish_sound = VanishSound() if mode == "naruto" else None
+    vanish_sound = None
+    if mode == "naruto":
+        # The effect works without audio, so a missing audio device must not stop the app.
+        try:
+            vanish_sound = VanishSound()
+        except RuntimeError as error:
+            print(f"[Webcam] Audio disattivato: {error}")
     if vanish_sound is not None:
         resources.callback(vanish_sound.close)
     resources.callback(cv2.destroyAllWindows)
@@ -780,7 +786,7 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str) -> int
                             print(f"[Mani] rilevate={recognizer.last_hand_count}, "
                                   f"unite={joined}, vista={recognizer.preferred_view or 'full'}")
                             last_gesture_report = now
-                        if start_naruto_on_join(state, joined, time.perf_counter()):
+                        if start_naruto_on_join(state, joined, time.perf_counter()) and vanish_sound:
                             vanish_sound.play()
 
                 if state.phase in ("vanishing", "naruto_vanishing"):
@@ -854,7 +860,8 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str) -> int
                 state.phase = "naruto_vanishing" if mode == "naruto" else "vanishing"
                 state.vanish_started = time.perf_counter()
                 if mode == "naruto":
-                    vanish_sound.play()
+                    if vanish_sound:
+                        vanish_sound.play()
                     log_anchor = None
                 vanished_frame = None
             elif key == ord("f"):

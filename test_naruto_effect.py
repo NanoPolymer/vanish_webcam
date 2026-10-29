@@ -133,13 +133,12 @@ class MenuTests(unittest.TestCase):
 
 
 class NarutoVideoLoopTests(unittest.TestCase):
-    def test_effect_is_sent_to_preview_and_virtual_camera(self):
+    def run_naruto(self, sound):
         frames = [np.full((80, 120, 3), v, np.uint8) for v in (10, 40, 80, 120, 160)]
         capture = Mock()
         capture.read.side_effect = [(True, frame) for frame in frames]
         segmenter, recognizer = Mock(), Mock()
         recognizer.recognize_joined_hands.return_value = True
-        sound = Mock()
         virtual = Mock(width=120, height=80)
         preview = []
         with ExitStack() as mocks:
@@ -147,7 +146,7 @@ class NarutoVideoLoopTests(unittest.TestCase):
             mocks.enter_context(patch.object(app, "download_models"))
             mocks.enter_context(patch.object(app, "open_camera", return_value=capture))
             mocks.enter_context(patch.object(app, "create_tasks", return_value=(segmenter, recognizer)))
-            mocks.enter_context(patch.object(app, "VanishSound", return_value=sound))
+            mocks.enter_context(patch.object(app, "VanishSound", side_effect=sound))
             mocks.enter_context(patch.object(app, "open_virtual_camera", return_value=virtual))
             mocks.enter_context(patch.object(app, "person_mask", return_value=np.ones((80, 120), np.float32)))
             mocks.enter_context(patch.object(app.time, "perf_counter", side_effect=(
@@ -168,8 +167,15 @@ class NarutoVideoLoopTests(unittest.TestCase):
         self.assertTrue(np.any(preview[3] != frames[3]))
         self.assertTrue(np.any(preview[4] != frames[1]))  # Tronco persistente.
         recognizer.recognize_joined_hands.assert_called_once()
+
+    def test_effect_is_sent_to_preview_and_virtual_camera(self):
+        sound = Mock()
+        self.run_naruto(lambda: sound)
         sound.play.assert_called_once()
         sound.close.assert_called_once()
+
+    def test_effect_runs_without_audio_device(self):
+        self.run_naruto(RuntimeError("no audio device"))
 
 
 if __name__ == "__main__":
