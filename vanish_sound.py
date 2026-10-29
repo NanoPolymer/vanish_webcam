@@ -1,4 +1,4 @@
-"""Preload the Naruto MP3 and play it without blocking video frames."""
+"""Load the Naruto MP3 before the video starts. Play it while the video frames continue."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ SOUND_PATH = Path(__file__).resolve().parent / "assets" / "vanish.MP3"
 class VanishSound:
     def __init__(self, path: Path = SOUND_PATH):
         if not path.is_file():
-            raise RuntimeError(f"Audio Naruto non trovato: {path}")
+            raise RuntimeError(f"Cannot find the Naruto audio file: {path}")
         self.path = path
 
         os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -25,7 +25,7 @@ class VanishSound:
         except ImportError:
             self.ffplay = shutil.which("ffplay")
             if self.ffplay is None:
-                raise RuntimeError("Per riprodurre vanish.MP3 installa pygame o ffplay.")
+                raise RuntimeError("Install pygame or ffplay to play vanish.MP3.")
             return
 
         self.mixer = mixer
@@ -33,11 +33,11 @@ class VanishSound:
         try:
             if self.owns_mixer:
                 mixer.init(frequency=44100, size=-16, channels=2, buffer=256)
-            self.sound = mixer.Sound(str(path))  # Decode once, before opening the webcam.
+            self.sound = mixer.Sound(str(path))  # Decode the file one time, before the webcam opens.
         except Exception as error:
             if self.owns_mixer:
                 mixer.quit()
-            raise RuntimeError(f"Impossibile aprire l'audio Naruto: {error}") from error
+            raise RuntimeError(f"Cannot open the Naruto audio: {error}") from error
 
     def play(self) -> None:
         if self.ffplay is not None:
@@ -52,11 +52,11 @@ class VanishSound:
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except OSError as error:
-                raise RuntimeError(f"Impossibile avviare l'audio Naruto: {error}") from error
+                raise RuntimeError(f"Cannot start the Naruto audio: {error}") from error
             return
         self.sound.stop()
         if self.sound.play() is None:
-            raise RuntimeError("Impossibile avviare l'audio Naruto: nessun canale libero.")
+            raise RuntimeError("Cannot start the Naruto audio: all audio channels are in use.")
 
     def close(self) -> None:
         if self.ffplay is not None:

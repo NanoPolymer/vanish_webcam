@@ -1,4 +1,4 @@
-"""Two-hand trigger and smoke/log compositing for body substitution."""
+"""Two-hand trigger, smoke and log layers for the body substitution effect."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ LOG_PATH = Path(__file__).resolve().parent / "assets" / "substitution_log.png"
 
 
 def joined_hands_from_landmarks(hands, width: int, height: int) -> bool:
-    """Recognize two nearby, similarly oriented open hands in image space."""
+    """Find two open hands that are near each other and point in a similar direction."""
     if len(hands) < 2:
         return False
     points = [np.array([(p.x * width, p.y * height) for p in hand])
@@ -39,7 +39,7 @@ def joined_hands_from_landmarks(hands, width: int, height: int) -> bool:
 
 
 def substitution_anchor(mask: np.ndarray) -> tuple[int, int, int]:
-    """Place the log at the person's torso instead of at a fixed screen spot."""
+    """Put the log at the torso of the person, not at a fixed position on the screen."""
     height, width = mask.shape
     binary = (mask > 0.45).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
@@ -56,7 +56,7 @@ def substitution_anchor(mask: np.ndarray) -> tuple[int, int, int]:
 def load_log() -> np.ndarray:
     sprite = cv2.imread(str(LOG_PATH), cv2.IMREAD_UNCHANGED)
     if sprite is None or sprite.ndim != 3 or sprite.shape[2] != 4:
-        raise RuntimeError(f"Sprite del tronco non disponibile: {LOG_PATH}")
+        raise RuntimeError(f"The log sprite is not available: {LOG_PATH}")
     return sprite
 
 
@@ -96,7 +96,10 @@ def landed_log_anchor(anchor: tuple[int, int, int], frame_height: int) -> tuple[
 
 def falling_log_anchor(anchor: tuple[int, int, int], frame_height: int,
                        age: float) -> tuple[int, int, int]:
-    """Accelerate downwards, touch the frame floor, then settle with a small bounce."""
+    """Move the log down faster and faster until it touches the bottom of the frame.
+
+    Then the log bounces a small distance and stops.
+    """
     cx, cy, size = anchor
     floor_y = landed_log_anchor(anchor, frame_height)[1]
     distance = floor_y - cy
@@ -123,8 +126,8 @@ def _smoke_layer(frame: np.ndarray, anchor: tuple[int, int, int],
     fade = max(0.0, 1.0 - max(0.0, age - 0.33) / 1.12)
     if fade <= 0:
         return
-    # Smoke only occupies the area around the log; avoid allocating and
-    # blending a full-size RGBA video frame twice per animation frame.
+    # The smoke is only in the area around the log. Do not make and blend
+    # a full-size RGBA frame two times for each animation frame.
     margin = int(size * 1.35)
     left, top = max(0, cx - margin), max(0, cy - margin)
     right = min(frame.shape[1], cx + margin + 1)
@@ -142,7 +145,7 @@ def _smoke_layer(frame: np.ndarray, anchor: tuple[int, int, int],
         color = (229, 235, 235, 190) if foreground else (152, 162, 166, 125)
         cv2.ellipse(layer, (x, y), (puff, int(puff * 0.68)),
                     rng.uniform(-25, 25), 0, 360, color, -1, cv2.LINE_AA)
-    # Long white winding smoke ribbons echo the supplied anime reference.
+    # Long, curved, white smoke lines look like the supplied anime reference.
     for direction in (-1, 1):
         center = (int(cx + direction * size * 0.13) - left,
                   int(cy - size * 0.13 - age * size * 0.09) - top)
@@ -167,7 +170,7 @@ def _smoke_layer(frame: np.ndarray, anchor: tuple[int, int, int],
 def render_substitution(frame: np.ndarray, background: np.ndarray, mask: np.ndarray,
                         sprite: np.ndarray, anchor: tuple[int, int, int], age: float,
                         log_cache: dict[int, np.ndarray] | None = None) -> np.ndarray:
-    """Quick body replacement, expanding smoke, then a persistent wooden log."""
+    """Replace the body quickly and expand the smoke. Then show a wooden log that stays."""
     if age >= EFFECT_SECONDS:
         output = background.copy()
         overlay_log(output, sprite, landed_log_anchor(anchor, output.shape[0]), cache=log_cache)

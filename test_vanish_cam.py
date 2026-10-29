@@ -49,11 +49,11 @@ class VictoryGestureTests(unittest.TestCase):
 
     def test_other_gestures_do_not_trigger(self):
         for fingers in (
-            (False, False, False, False),  # Pugno.
-            (True, True, True, True),  # Palmo aperto.
-            (True, False, False, False),  # Solo indice.
-            (True, False, False, True),  # Corna.
-            (True, True, True, False),  # Tre dita.
+            (False, False, False, False),  # Fist.
+            (True, True, True, True),  # Open palm.
+            (True, False, False, False),  # Index finger only.
+            (True, False, False, True),  # Horns.
+            (True, True, True, False),  # Three fingers.
         ):
             with self.subTest(fingers=fingers):
                 self.assertEqual(victory_landmark_score(hand_points(fingers)), 0.0)
@@ -183,7 +183,7 @@ class MultiViewTests(unittest.TestCase):
         detector = MultiViewGestureRecognizer(
             SimpleNamespace(recognize_for_video=lambda image, timestamp: self.empty), alternate
         )
-        # Each retry tries three views and the next retry waits one gesture interval.
+        # Each retry tries three views. The next retry waits for one gesture interval.
         self.assertEqual(recognize_gesture(detector, self.image, 1000)[0], "No_Hand")
         self.assertEqual(len(calls), 3)
         recognize_gesture(detector, self.image, 1100)
@@ -215,7 +215,7 @@ class MultiViewTests(unittest.TestCase):
             SimpleNamespace(recognize_for_video=lambda image, timestamp: self.empty),
             SimpleNamespace(recognize=recognize),
         )
-        # The crop is not in the first retry, so it must appear in a later one.
+        # The first retry does not contain the crop. A later retry must find it.
         results = [recognize_gesture(detector, self.image, 1000 + 140 * retry)[0]
                    for retry in range(4)]
         self.assertIn("Victory", results)
