@@ -803,16 +803,22 @@ def run() -> int:
     args = parse_args()
     if getattr(args, "self_test", False):
         return self_test()
-    if args.mode:
-        # Without the menu, use the first webcam that the system reports and English text.
-        cameras = list_cameras(limit=1)
-        choice = args.mode, cameras[0][0] if cameras else 0, "en"
-    else:
-        choice = choose_mode()
-    if choice is None:
-        return 0
-    mode, camera, language = choice
     with ExitStack() as resources:
+        if getattr(args, "meeting_audio", False):
+            # Make the microphone before the menu, so that the meeting app can select it early.
+            meeting_audio = MeetingAudio()
+            meeting_audio.open()
+            resources.callback(meeting_audio.close)
+            print(f"[Webcam] Select the microphone 'VanishMic' ({MIC_SOURCE}) in the meeting app.")
+        if args.mode:
+            # Without the menu, use the first webcam that the system reports and English text.
+            cameras = list_cameras(limit=1)
+            choice = args.mode, cameras[0][0] if cameras else 0, "en"
+        else:
+            choice = choose_mode()
+        if choice is None:
+            return 0
+        mode, camera, language = choice
         return run_camera(args, resources, mode, camera, language)
 
 
@@ -827,14 +833,6 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
     resources.callback(recognizer.close)
     log_sprite = load_log() if mode == "naruto" else None
     vanish_sound = None
-    if getattr(args, "meeting_audio", False):
-        if mode == "normal":
-            print("[Webcam] Normal Vanish has no sound. The app ignores --meeting-audio.")
-        else:
-            meeting_audio = MeetingAudio()
-            meeting_audio.open()
-            resources.callback(meeting_audio.close)
-            print(f"[Webcam] Select the microphone 'VanishMic' ({MIC_SOURCE}) in the meeting app.")
     if mode in ("naruto", "goku"):
         # The effect works without audio, so a missing audio device must not stop the app.
         try:
