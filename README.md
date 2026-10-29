@@ -26,7 +26,7 @@ The published EXE may predate the Goku mode. To use them now, run the local scri
 
 The teleport sound is not part of the repository. To hear it, put your own MP3 at `assets/teleport.MP3` (the file is in `.gitignore`). Without it, Goku mode runs without sound.
 
-**Peace Out:** Show the V sign. The image freezes, then you fade away in about 2 seconds, like the "peace out" meme. The sound is not part of the repository either. To hear it, put your own MP3 at `assets/peace.mp3` (the file is in `.gitignore`).
+**Peace Out:** Show the V sign. The image freezes, then you fade away in about 1.4 seconds, like the "peace out" meme. The sound is not part of the repository either. To hear it, put your own MP3 at `assets/peace.mp3` (the file is in `.gitignore`).
 
 **Naruto Vanish:** Bring your palms together in front of the webcam, with your fingers side by side rather than interlaced. Keep both hands visible. As soon as the gesture is recognized, you vanish in a cloud of smoke and a wooden log appears, falls, and remains visible until you press `R`. No microphone is needed. Naruto mode uses `hand_landmarker.task` to track both hands. `assets/vanish.MP3` plays through your computer speakers when the disappearance starts, including when triggered with `V`. You can trigger it again after pressing `R`.
 
