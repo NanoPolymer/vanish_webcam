@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import struct
 import sys
 import time
 import urllib.error
@@ -59,6 +60,7 @@ MODE_NAMES = {
 TEXT = {
     "en": {
         "webcam": "Webcam",
+        "video_mode": "Video mode",
         "effect": "Effect",
         "language": "Language",
         "normal_detail": "V sign  /  dissolve",
@@ -85,6 +87,7 @@ TEXT = {
     },
     "it": {
         "webcam": "Webcam",
+        "video_mode": "Modalita video",
         "effect": "Effetto",
         "language": "Lingua",
         "normal_detail": "Segno a V  /  dissolvenza",
@@ -298,7 +301,99 @@ def download_models(mode: str = "normal") -> None:
             ) from error
 
 
-def open_camera(index: int, width: int, height: int) -> cv2.VideoCapture:
+# The V4L2 ioctl requests (_IOWR('V', number, size)) that list the formats of a webcam.
+def _v4l2_request(number: int, size: int) -> int:
+    return (3 << 30) | (size << 16) | (ord("V") << 8) | number
+
+
+VIDIOC_ENUM_FMT = _v4l2_request(2, 64)
+VIDIOC_ENUM_FRAMESIZES = _v4l2_request(74, 44)
+VIDIOC_ENUM_FRAMEINTERVALS = _v4l2_request(75, 52)
+V4L2_DISCRETE = 1
+VIDEO_FORMATS = ("MJPG", "YUYV")
+# ponytail: other systems give no format list to OpenCV. These usual modes cover most webcams.
+FALLBACK_VIDEO_MODES = [
+    ("MJPG", 1920, 1080, 30.0), ("MJPG", 1280, 720, 30.0),
+    ("MJPG", 960, 540, 30.0), ("MJPG", 640, 480, 30.0),
+]
+
+
+def _v4l2_list(ioctl, device: int, request: int, size: int, layout: str, *values: int):
+    """Give the result buffers for the index 0, 1, 2 ... until the driver refuses the index."""
+    index = 0
+    while True:
+        buffer = bytearray(size)
+        struct.pack_into(layout, buffer, 0, index, *values)
+        try:
+            ioctl(device, request, buffer)
+        except OSError:
+            return
+        yield buffer
+        index += 1
+
+
+def list_video_modes(index: int) -> list[tuple[str, int, int, float]]:
+    """Return the video modes of a webcam as (FOURCC, width, height, fps), the best mode first."""
+    path = f"/dev/video{index}"
+    if not sys.platform.startswith("linux") or not os.path.exists(path):
+        return list(FALLBACK_VIDEO_MODES)
+    import fcntl
+    try:
+        device = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+    except OSError:
+        return list(FALLBACK_VIDEO_MODES)
+    try:
+        return read_video_modes(fcntl.ioctl, device) or list(FALLBACK_VIDEO_MODES)
+    finally:
+        os.close(device)
+
+
+def read_video_modes(ioctl, device: int) -> list[tuple[str, int, int, float]]:
+    """Ask the driver for the modes. Use MJPG and YUYV only, with a height of 360 or more.
+
+    If both formats have the same size and fps, keep MJPG.
+    """
+    modes: dict[tuple[int, int, float], str] = {}
+    for description in _v4l2_list(ioctl, device, VIDIOC_ENUM_FMT, 64, "<II", 1):
+        pixel_format = struct.unpack_from("<I", description, 44)[0]
+        fourcc = pixel_format.to_bytes(4, "little").decode("ascii", "replace")
+        if fourcc not in VIDEO_FORMATS:
+            continue
+        for frame_size in _v4l2_list(ioctl, device, VIDIOC_ENUM_FRAMESIZES, 44, "<II", pixel_format):
+            kind, width, height = struct.unpack_from("<III", frame_size, 8)
+            if kind != V4L2_DISCRETE:
+                continue
+            for interval in _v4l2_list(ioctl, device, VIDIOC_ENUM_FRAMEINTERVALS, 52, "<IIII",
+                                       pixel_format, width, height):
+                kind, numerator, denominator = struct.unpack_from("<III", interval, 16)
+                if kind != V4L2_DISCRETE or not numerator or height < 360:
+                    continue
+                key = (width, height, round(denominator / numerator, 2))
+                if modes.get(key) != "MJPG":
+                    modes[key] = fourcc
+    # A webcam can give each size at many frame rates. Keep 30 and 60 fps, or the highest rate.
+    kept = []
+    for width, height in {(width, height) for width, height, _ in modes}:
+        rates = sorted(fps for size_w, size_h, fps in modes if (size_w, size_h) == (width, height))
+        usual = [fps for fps in rates if fps in (30.0, 60.0)] or rates[-1:]
+        kept += [(modes[(width, height, fps)], width, height, fps) for fps in usual]
+    return sorted(kept, key=lambda mode: (-mode[1] * mode[2], -mode[3]))
+
+
+def default_video_mode(modes: list[tuple[str, int, int, float]], width: int, height: int,
+                       fps: float) -> tuple[str, int, int, float]:
+    """Select the highest fps that is not above fps. Then select the size nearest to the requested size."""
+    fitting = [mode for mode in modes if mode[3] <= fps + 0.01] or modes
+    return min(fitting, key=lambda mode: (-mode[3], abs(mode[1] * mode[2] - width * height), mode[0] != "MJPG"))
+
+
+def video_mode_name(mode: tuple[str, int, int, float]) -> str:
+    fourcc, width, height, fps = mode
+    return f"{width}x{height}  {fps:g} fps  {fourcc}"
+
+
+def open_camera(index: int, width: int, height: int, fourcc: str = "MJPG",
+                fps: float | None = None) -> cv2.VideoCapture:
     if platform.system() == "Windows":
         capture = cv2.VideoCapture(index, cv2.CAP_DSHOW)
         if not capture.isOpened():
@@ -309,14 +404,16 @@ def open_camera(index: int, width: int, height: int) -> cv2.VideoCapture:
 
     if not capture.isOpened():
         raise RuntimeError(
-            f"Webcam {index} is not available. Close the other apps that use it, or select a different webcam in the menu."
+            f"Webcam {index} is not available. Close the other apps that use it, or select a different webcam in the window."
         )
 
     # Many webcams supply large YUYV frames only at a low frame rate. MJPG gives the full rate.
     # Set the format before the size, because the driver selects the size for the format.
-    capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    if fps is not None:
+        capture.set(cv2.CAP_PROP_FPS, fps)
     capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     return capture
 
@@ -1101,30 +1198,32 @@ class AppWindow:
 
         self.webcam_label = heading(0)
         self.webcam_box = choice(1, [f"{index}: {name}" for index, name in self.cameras], self.select_camera)
-        self.effect_label = heading(2)
-        self.effect_box = choice(3, [MODE_NAMES[mode] for mode in MODES], self.select_mode)
+        self.video_mode_label = heading(2)
+        self.video_mode_box = choice(3, [], self.select_video_mode)
+        self.effect_label = heading(4)
+        self.effect_box = choice(5, [MODE_NAMES[mode] for mode in MODES], self.select_mode)
         self.detail_label = tk.Label(panel, bg=self.PANEL, fg=self.MUTED, anchor="w", justify="left")
-        self.detail_label.grid(row=4, column=0, sticky="ew")
-        self.language_label = heading(5)
-        self.language_box = choice(6, LANGUAGE_NAMES, self.select_language)
-        self.background_button = button(7, self.capture_background, font=("TkDefaultFont", 11, "bold"))
-        self.vanish_button = button(8, lambda: self.engine.vanish(time.perf_counter()))
-        self.reappear_button = button(9, lambda: self.engine.reappear(time.perf_counter()))
-        self.fullscreen_button = button(10, self.toggle_fullscreen)
+        self.detail_label.grid(row=6, column=0, sticky="ew")
+        self.language_label = heading(7)
+        self.language_box = choice(8, LANGUAGE_NAMES, self.select_language)
+        self.background_button = button(9, self.capture_background, font=("TkDefaultFont", 11, "bold"))
+        self.vanish_button = button(10, lambda: self.engine.vanish(time.perf_counter()))
+        self.reappear_button = button(11, lambda: self.engine.reappear(time.perf_counter()))
+        self.fullscreen_button = button(12, self.toggle_fullscreen)
         self.meeting_enabled = tk.BooleanVar(self.root, value=False)
         self.meeting_check = tk.Checkbutton(
             panel, variable=self.meeting_enabled, command=self.toggle_meeting_audio, takefocus=0,
             anchor="w", bg=self.PANEL, fg=self.FOREGROUND, selectcolor=self.CONTROL,
             activebackground=self.PANEL, activeforeground=self.FOREGROUND, highlightthickness=0,
         )
-        self.meeting_check.grid(row=11, column=0, sticky="ew", pady=(12, 0))
+        self.meeting_check.grid(row=13, column=0, sticky="ew", pady=(12, 0))
         self.status_label = tk.Label(panel, bg=self.PANEL, fg=self.FOREGROUND, anchor="w",
                                      justify="left", wraplength=240)
-        self.status_label.grid(row=12, column=0, sticky="ew", pady=(16, 0))
-        panel.rowconfigure(13, weight=1)
+        self.status_label.grid(row=14, column=0, sticky="ew", pady=(16, 0))
+        panel.rowconfigure(15, weight=1)
         self.keys_label = tk.Label(panel, bg=self.PANEL, fg=self.MUTED, anchor="w",
                                    justify="left", wraplength=240, font=("TkDefaultFont", 8))
-        self.keys_label.grid(row=14, column=0, sticky="sew")
+        self.keys_label.grid(row=16, column=0, sticky="sew")
 
         self.root.bind("<KeyPress>", self.on_key)
         self.fullscreen = False
@@ -1133,7 +1232,10 @@ class AppWindow:
         mode = args.mode or "normal"
         self.effect_box.current(MODES.index(mode))
         self.update_texts()
-        self.open_camera(self.cameras[0][0])
+        self.camera_index = self.cameras[0][0]
+        self.video_modes: list[tuple[str, int, int, float]] = []
+        self.video_mode: tuple[str, int, int, float] | None = None
+        self.load_video_modes()
         if getattr(args, "meeting_audio", False):
             # Make the microphone before the sound opens, so that the sound goes into the mix.
             self.meeting_enabled.set(True)
@@ -1168,20 +1270,38 @@ class AppWindow:
             self.virtual_camera.close()
             self.virtual_camera = None
 
-    def open_camera(self, index: int) -> None:
+    def open_camera(self, mode: tuple[str, int, int, float]) -> None:
         self.release_camera()
+        fourcc, width, height, fps = mode
         try:
-            self.capture = open_camera(index, self.args.width, self.args.height)
-            self.capture.set(cv2.CAP_PROP_FPS, self.args.fps)
+            self.capture = open_camera(self.camera_index, width, height, fourcc, fps)
+            self.video_mode = mode
             self.status_override = None
+            print(f"[Webcam] Webcam {self.camera_index}: {video_mode_name(mode)}.")
         except RuntimeError as error:
             print(f"[Webcam] {error}")
             self.status_override = self.text("status_camera_error")
 
+    def load_video_modes(self) -> None:
+        """List the modes of the selected webcam and open the webcam in the default mode."""
+        self.video_modes = list_video_modes(self.camera_index)
+        mode = default_video_mode(self.video_modes, self.args.width, self.args.height, self.args.fps)
+        self.video_mode_box.configure(values=[video_mode_name(item) for item in self.video_modes])
+        self.video_mode_box.current(self.video_modes.index(mode))
+        self.open_camera(mode)
+
     def select_camera(self, position: int) -> None:
-        self.open_camera(self.cameras[position][0])
+        self.camera_index = self.cameras[position][0]
+        self.load_video_modes()
         # The old background is from a different view.
         self.engine.forget_background()
+
+    def select_video_mode(self, position: int) -> None:
+        old = self.video_mode
+        self.open_camera(self.video_modes[position])
+        if old is None or old[1:3] != self.video_modes[position][1:3]:
+            # The background must have the size of the new frames.
+            self.engine.forget_background()
 
     def select_mode(self, position: int) -> None:
         mode = MODES[position]
@@ -1258,6 +1378,7 @@ class AppWindow:
 
     def update_texts(self) -> None:
         self.webcam_label.configure(text=self.text("webcam"))
+        self.video_mode_label.configure(text=self.text("video_mode"))
         self.effect_label.configure(text=self.text("effect"))
         self.language_label.configure(text=self.text("language"))
         mode = self.engine.mode or MODES[self.effect_box.current()]

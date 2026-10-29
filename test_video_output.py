@@ -1,4 +1,5 @@
 import argparse
+import struct
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
@@ -139,6 +140,50 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(engine.state.phase, "no_background")
 
 
+class VideoModeTests(unittest.TestCase):
+    def fake_driver(self, formats):
+        """formats: {fourcc: {(width, height): [fps, ...]}}. Answer the V4L2 list requests like a driver."""
+        codes = {name: int.from_bytes(name.encode(), "little") for name in formats}
+
+        def ioctl(device, request, buffer):
+            index, code = struct.unpack_from("<II", buffer, 0)
+            if request == app.VIDIOC_ENUM_FMT:
+                names = list(formats)
+                if index >= len(names):
+                    raise OSError("EINVAL")
+                struct.pack_into("<I", buffer, 44, codes[names[index]])
+                return
+            name = next(key for key, value in codes.items() if value == code)
+            sizes = list(formats[name])
+            if request == app.VIDIOC_ENUM_FRAMESIZES:
+                if index >= len(sizes):
+                    raise OSError("EINVAL")
+                struct.pack_into("<III", buffer, 8, app.V4L2_DISCRETE, *sizes[index])
+                return
+            width, height = struct.unpack_from("<II", buffer, 8)
+            rates = formats[name][(width, height)]
+            if index >= len(rates):
+                raise OSError("EINVAL")
+            struct.pack_into("<III", buffer, 16, app.V4L2_DISCRETE, 1, rates[index])
+
+        return ioctl
+
+    def test_modes_prefer_mjpg_and_usual_rates(self):
+        ioctl = self.fake_driver({
+            "YUYV": {(640, 480): [30, 15], (320, 240): [30]},
+            "MJPG": {(1280, 720): [60, 30, 24], (640, 480): [30], (800, 600): [20, 10]},
+            "H264": {(1920, 1080): [30]},
+        })
+        modes = app.read_video_modes(ioctl, -1)
+        self.assertEqual(modes, [
+            ("MJPG", 1280, 720, 60.0), ("MJPG", 1280, 720, 30.0),
+            ("MJPG", 800, 600, 20.0), ("MJPG", 640, 480, 30.0),
+        ])
+        self.assertEqual(app.default_video_mode(modes, 1280, 720, 30.0), ("MJPG", 1280, 720, 30.0))
+        self.assertEqual(app.default_video_mode(modes, 960, 540, 30.0), ("MJPG", 640, 480, 30.0))  # 30 fps before size.
+        self.assertEqual(app.video_mode_name(modes[0]), "1280x720  60 fps  MJPG")
+
+
 def has_display():
     try:
         import tkinter
@@ -159,6 +204,8 @@ class WindowTests(unittest.TestCase):
         with ExitStack() as mocks:
             mocks.enter_context(patch("builtins.print"))
             mocks.enter_context(patch.object(app, "list_cameras", return_value=[(3, "A"), (5, "B")]))
+            mocks.enter_context(patch.object(app, "list_video_modes", return_value=[
+                ("MJPG", 1280, 720, 30.0), ("MJPG", 40, 24, 30.0), ("YUYV", 40, 24, 60.0)]))
             opening = mocks.enter_context(patch.object(app, "open_camera", return_value=capture))
             mocks.enter_context(patch.object(app, "open_virtual_camera", return_value=virtual))
             mocks.enter_context(patch.object(app, "recognize_gesture", return_value=("No_Hand", 0.0)))
@@ -191,10 +238,18 @@ class WindowTests(unittest.TestCase):
                     window.meeting_check.invoke()  # A failure leaves the box off.
                     self.assertFalse(window.meeting_enabled.get())
                     self.assertIsNone(window.meeting_audio)
+                self.assertEqual(opening.call_args.args, (3, 1280, 720, "MJPG", 30.0))
+                window.capture_background()
+                window.select_video_mode(2)  # Other size: the background is removed.
+                self.assertEqual(opening.call_args.args, (3, 40, 24, "YUYV", 60.0))
+                self.assertEqual(window.engine.state.phase, "no_background")
+                window.capture_background()
+                window.select_video_mode(1)  # Same size: the capture continues.
+                self.assertEqual(window.engine.state.phase, "calibrating")
                 window.select_camera(1)
                 self.assertEqual(opening.call_args.args[0], 5)
                 self.assertEqual(window.engine.state.phase, "no_background")
-            self.assertEqual(capture.release.call_count, 2)
+            self.assertEqual(capture.release.call_count, 4)
             virtual.close.assert_called_once()
             for task in tasks:
                 task.close.assert_called_once()

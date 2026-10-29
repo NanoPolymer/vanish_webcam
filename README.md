@@ -75,10 +75,12 @@ When you change the webcam, the old background no longer fits, so capture a new 
 
 The side panel is in English by default. Choose **Italiano** under **Language** to switch to Italian. Terminal messages are always in English.
 
-You can change the resolution and maximum virtual-output FPS:
+Choose the resolution and frame rate in the **Video mode** dropdown. On Linux, the list shows the modes your webcam supports (30 and 60 fps per size, MJPG preferred). On other systems, it shows usual modes. A change to a different size removes the background, so capture a new one.
+
+The virtual camera keeps the size of the first video mode, and it sends at most `--fps` frames per second (default 30). To pick the starting mode and the output rate, pass:
 
 ```powershell
-local_app\AVVIA_LOCALE.bat --width 1280 --height 720 --fps 30
+local_app\AVVIA_LOCALE.bat --width 1280 --height 720 --fps 60
 ```
 
 To troubleshoot gesture recognition without adding text to the video, pass `--gesture-debug`. Diagnostic information appears only in the terminal.
