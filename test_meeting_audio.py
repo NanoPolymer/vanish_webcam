@@ -32,7 +32,7 @@ class MeetingAudioTests(unittest.TestCase):
     def setUp(self):
         mocks = [
             patch.object(meeting_audio.platform, "system", return_value="Linux"),
-            patch.object(meeting_audio.shutil, "which", return_value="/usr/bin/pactl"),
+            patch.object(meeting_audio.shutil, "which", return_value="/usr/bin/tool"),
             patch.dict(os.environ, {}, clear=False),
         ]
         for mock in mocks:
@@ -40,17 +40,29 @@ class MeetingAudioTests(unittest.TestCase):
             self.addCleanup(mock.stop)
         os.environ.pop("PULSE_SINK", None)
 
-    def test_virtual_mic_is_a_source_node_not_a_filter(self):
+    def test_virtual_mic_is_a_virtual_source_null_sink_linked_to_the_mix(self):
+        fake, links = FakePactl(), []
+        MeetingAudio(fake, link=lambda out, inp: links.append((out, inp)) or True).open()
+        self.assertIn(("load-module", "module-null-sink", "media.class=Audio/Source/Virtual",
+                       "sink_name=vanish_mic", "sink_properties=device.description=VanishMic",
+                       "channel_map=front-left,front-right"), fake.calls)
+        self.assertEqual(links, [("vanish_mix:monitor_FL", "vanish_mic:input_FL"),
+                                 ("vanish_mix:monitor_FR", "vanish_mic:input_FR")])
+
+    def test_link_retries_until_ports_exist_then_gives_up(self):
+        attempts = []
+        audio = MeetingAudio(FakePactl(), link=lambda out, inp: attempts.append(out) or len(attempts) > 3,
+                             wait=lambda seconds: None)
+        audio.open()
+        self.assertEqual(len(attempts), 5)  # Three failures, then FL and FR.
         fake = FakePactl()
-        MeetingAudio(fake).open()
-        loaded = [call for call in fake.calls if call[0] == "load-module"]
-        self.assertNotIn("module-remap-source", [call[1] for call in loaded])
-        self.assertTrue(any("media.class=Audio/Source node.name=vanish_mic" in " ".join(call)
-                            for call in loaded))
+        with self.assertRaisesRegex(RuntimeError, "Cannot link"):
+            MeetingAudio(fake, link=lambda out, inp: False, wait=lambda seconds: None).open()
+        self.assertEqual(len([c for c in fake.calls if c[0] == "unload-module"]), 6)
 
     def test_open_routes_microphone_and_effect_then_close_unloads_only_own_modules(self):
         fake = FakePactl()
-        audio = MeetingAudio(fake)
+        audio = MeetingAudio(fake, link=lambda out, inp: True)
         audio.open()
         loaded = [call for call in fake.calls if call[0] == "load-module"]
         self.assertEqual(len(loaded), 6)
@@ -66,7 +78,7 @@ class MeetingAudioTests(unittest.TestCase):
                    "8\tmodule-alsa-card\tdevice_id=0\n"
                    "9\tmodule-loopback\tsource=vanish_fx.monitor")
         fake = FakePactl(modules=modules)
-        MeetingAudio(fake).open()
+        MeetingAudio(fake, link=lambda out, inp: True).open()
         unloaded = [call[1] for call in fake.calls if call[0] == "unload-module"]
         self.assertEqual(unloaded, ["7", "9"])
 

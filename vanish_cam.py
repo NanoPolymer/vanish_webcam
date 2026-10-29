@@ -44,6 +44,13 @@ except ImportError:
 
 
 APP_DIR = Path(__file__).resolve().parent
+
+# The OpenCV wheel sets QT_QPA_FONTDIR to a folder that does not exist, and Qt
+# shows a warning. Qt reads the variable when the first window opens, so use the system fonts.
+_font_dir = os.environ.get("QT_QPA_FONTDIR")
+if sys.platform.startswith("linux") and not (_font_dir and os.path.isdir(_font_dir)) \
+        and os.path.isdir("/usr/share/fonts"):
+    os.environ["QT_QPA_FONTDIR"] = "/usr/share/fonts"
 MODEL_DIR = APP_DIR / "models"
 WINDOW_NAME = "preview"
 MENU_WINDOW = "menu"

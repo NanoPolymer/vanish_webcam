@@ -2,11 +2,11 @@
 
 The app plays the effect into the "vanish_fx" sink. Loopbacks send it to the
 speakers and into the "vanish_mix" sink, together with the real microphone.
-A loopback sends "vanish_mix" to "VanishMic", which the meeting app records.
-The playback side of that loopback is an Audio/Source node, so desktop sound
-settings show VanishMic as a normal input. This needs PipeWire (pipewire-pulse).
-A remap-source is not used: it has the "filter" device class, and KDE Plasma
-does not show it as an input.
+Port links (pw-link) connect "vanish_mix" to "VanishMic", which the meeting
+app records. VanishMic is a null sink with the class Audio/Source/Virtual.
+PipeWire gives it the HARDWARE flag, so KDE Plasma shows it as a normal input
+also when "Show virtual devices" is off. A remap-source or a loopback source
+does not have this flag. This needs PipeWire (pipewire-pulse and pw-link).
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import os
 import platform
 import shutil
 import subprocess
+import time
 
 
 MIX_SINK = "vanish_mix"
@@ -32,15 +33,25 @@ def pactl(*args: str) -> str:
     return result.stdout.strip()
 
 
+def pw_link(output: str, input_: str) -> bool:
+    try:
+        return subprocess.run(["pw-link", output, input_], capture_output=True,
+                              timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 class MeetingAudio:
-    def __init__(self, run=pactl):
+    def __init__(self, run=pactl, link=pw_link, wait=time.sleep):
         self.run = run
+        self.link = link
+        self.wait = wait
         self.modules: list[str] = []
 
     def open(self) -> None:
-        if platform.system() != "Linux" or shutil.which("pactl") is None:
+        if platform.system() != "Linux" or not (shutil.which("pactl") and shutil.which("pw-link")):
             raise RuntimeError(
-                "--meeting-audio needs Linux with PipeWire and pactl. "
+                "--meeting-audio needs Linux with PipeWire, pactl and pw-link. "
                 "On Windows, use VB-Audio Virtual Cable or Voicemeeter."
             )
         self.remove_leftovers()
@@ -51,11 +62,10 @@ class MeetingAudio:
                 "Select your microphone as the default input in the sound settings."
             )
         try:
+            self.load("module-null-sink", "media.class=Audio/Source/Virtual", f"sink_name={MIC_SOURCE}",
+                      "sink_properties=device.description=VanishMic", "channel_map=front-left,front-right")
             self.load("module-null-sink", f"sink_name={MIX_SINK}",
                       "sink_properties=device.description=VanishMix")
-            self.load("module-loopback", f"source={MIX_SINK}.monitor", "latency_msec=20",
-                      f'sink_input_properties="media.class=Audio/Source node.name={MIC_SOURCE} '
-                      'node.description=VanishMic"')
             self.load("module-loopback", f"source={microphone}", f"sink={MIX_SINK}", "latency_msec=20")
             self.load("module-null-sink", f"sink_name={EFFECT_SINK}",
                       "sink_properties=device.description=VanishFX")
@@ -63,12 +73,24 @@ class MeetingAudio:
                       "latency_msec=20")
             # Without a sink argument, the loopback uses the speakers or the headset.
             self.load("module-loopback", f"source={EFFECT_SINK}.monitor", "latency_msec=20")
+            self.connect_mix_to_mic()
         except RuntimeError:
             self.close()
             raise
         # SDL (pygame) and ffplay read these variables when the audio opens.
         os.environ["PULSE_SINK"] = EFFECT_SINK
         os.environ.setdefault("SDL_AUDIODRIVER", "pulseaudio")
+
+    def connect_mix_to_mic(self) -> None:
+        """Link the mix to the microphone. The links go away with the modules."""
+        for channel in ("FL", "FR"):
+            # The ports can appear a short time after the module loads.
+            for _ in range(20):
+                if self.link(f"{MIX_SINK}:monitor_{channel}", f"{MIC_SOURCE}:input_{channel}"):
+                    break
+                self.wait(0.1)
+            else:
+                raise RuntimeError(f"Cannot link {MIX_SINK} to {MIC_SOURCE} ({channel}).")
 
     def load(self, module: str, *args: str) -> None:
         self.modules.append(self.run("load-module", module, *args))
