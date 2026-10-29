@@ -42,7 +42,7 @@ def substitution_anchor(mask: np.ndarray) -> tuple[int, int, int]:
     """Put the log at the torso of the person, not at a fixed position on the screen."""
     height, width = mask.shape
     binary = (mask > 0.45).astype(np.uint8)
-    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
+    count, _, stats, _ = cv2.connectedComponentsWithStats(binary)
     if count <= 1:
         return width // 2, height // 2, int(height * 0.57)
     largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))

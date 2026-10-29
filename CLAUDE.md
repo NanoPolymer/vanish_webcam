@@ -22,15 +22,23 @@ This repository is a fork of `Nicovic17/vanish_webcam`. The `origin` remote is t
 - `AppWindow` is the Tkinter window. It shows the video and a side panel with the webcam, the effect, the language and the buttons.
 - `VanishEngine` keeps the background, the models and the effect state. The tests use it without a window.
 - The window uses Pillow (`ImageTk`) to show the frames. The `PhotoImage` PPM path is 4 times slower.
+- On Linux, `list_video_modes` reads the webcam modes with V4L2 ioctls. Other systems get `FALLBACK_VIDEO_MODES`.
+- The virtual camera opens again when the video mode changes. While an app reads a v4l2loopback device, the driver keeps the old size without an error. `virtual_output_size` reads the real size, and the app then uses the old settings again.
+
+## README
+
+- The README has a "Fork" section. Add each new user-visible feature of the fork to it.
 
 ## Assets
 
-- `assets/teleport.MP3` is a third-party sound. It is in `.gitignore`. Do not commit it. Without it, the Goku mode has no sound.
+- `assets/teleport.MP3` and `assets/peace.mp3` are third-party sounds. They are in `.gitignore`. Do not commit them. Without them, the Goku mode and the Peace mode have no sound.
+- `MODE_SOUNDS` in `vanish_cam.py` gives the sound for each mode.
 - The app downloads the MediaPipe models to `models/` on the first start. `MODE_MODELS` in `vanish_cam.py` gives the models for each mode.
 
-## Meeting audio (`--meeting-audio`)
+## Meeting audio (checkbox or `--meeting-audio`)
 
 - `meeting_audio.py` needs PipeWire, `pactl` and `pw-link`.
 - VanishMic is a null sink with `media.class=Audio/Source/Virtual`. A `pw-link` connects `vanish_mix` to it.
 - Do not use `module-remap-source` or a loopback as the source. They do not get the `HARDWARE` flag, and KDE Plasma hides them when "Show virtual devices" is off.
 - The app unloads only the module IDs that it loaded. On start, it removes the modules of an earlier run that crashed.
+- The effect sound reads `PULSE_SINK` only when the audio opens. After the checkbox changes, `VanishEngine.reload_sound` opens the sound again.
