@@ -79,7 +79,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Scegli Normal Vanish o Naruto Vanish per la webcam."
     )
-    parser.add_argument("--camera", type=int, default=0, help="Indice della webcam")
     parser.add_argument("--width", type=int, default=960, help="Larghezza video")
     parser.add_argument("--height", type=int, default=540, help="Altezza video")
     parser.add_argument(
@@ -110,28 +109,72 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def choose_mode() -> str | None:
+def list_cameras(limit: int = 10) -> list[tuple[int, str]]:
+    """Return the index and the name of each webcam that can supply video."""
+    sysfs = Path("/sys/class/video4linux")
+    if sysfs.is_dir():
+        cameras = []
+        for node in sorted(sysfs.glob("video*"), key=lambda path: int(path.name[5:])):
+            try:
+                # Index 0 is the video node of a device; other indexes carry metadata.
+                # v4l2loopback devices have no "device" link and are outputs, not webcams.
+                if (node / "index").read_text().strip() != "0" or not (node / "device").exists():
+                    continue
+                cameras.append((int(node.name[5:]), (node / "name").read_text().strip()))
+            except (OSError, ValueError):
+                continue
+        return cameras
+    # ponytail: other systems give no names to OpenCV, so probe indexes until the first gap.
+    cameras = []
+    for index in range(limit):
+        backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
+        capture = cv2.VideoCapture(index, backend)
+        opened = capture.isOpened()
+        capture.release()
+        if not opened:
+            break
+        cameras.append((index, f"Webcam {index}"))
+    return cameras
+
+
+def choose_mode() -> tuple[str, int] | None:
     """Simple keyboard/mouse menu shown before the clean camera feed."""
     title = "Scegli effetto"
+    cameras = list_cameras() or [(0, "Webcam 0")]
     selected = [None]
-    window = np.zeros((420, 700, 3), dtype=np.uint8)
-    window[:] = (26, 29, 34)
-    cv2.putText(window, "SCEGLI IL TUO VANISH", (68, 88),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.85, (236, 239, 242), 2, cv2.LINE_AA)
+    camera = [0]
     buttons = (
-        ("normal", "1  NORMAL VANISH", "Segno a V  /  dissolvenza", 140),
-        ("naruto", "2  NARUTO VANISH", "Mani unite  /  tronco e fumo", 260),
+        ("normal", "1  NORMAL VANISH", "Segno a V  /  dissolvenza", 240),
+        ("naruto", "2  NARUTO VANISH", "Mani unite  /  tronco e fumo", 360),
     )
-    for mode, heading, detail, top in buttons:
-        cv2.rectangle(window, (65, top), (635, top + 94), (48, 54, 62), -1, cv2.LINE_AA)
-        cv2.rectangle(window, (65, top), (635, top + 94), (111, 142, 153), 2, cv2.LINE_AA)
-        cv2.putText(window, heading, (90, top + 38),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.77, (240, 245, 247), 2, cv2.LINE_AA)
-        cv2.putText(window, detail, (90, top + 68),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.53, (179, 195, 201), 1, cv2.LINE_AA)
+    camera_top = 120
+
+    def draw() -> np.ndarray:
+        window = np.zeros((510, 700, 3), dtype=np.uint8)
+        window[:] = (26, 29, 34)
+        cv2.putText(window, "SCEGLI IL TUO VANISH", (68, 88),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.85, (236, 239, 242), 2, cv2.LINE_AA)
+        index, name = cameras[camera[0]]
+        rows = (
+            (f"C  WEBCAM {index}: {name[:30]}", "Clic o C per cambiare webcam", camera_top),
+            *((heading, detail, top) for _, heading, detail, top in buttons),
+        )
+        for heading, detail, top in rows:
+            cv2.rectangle(window, (65, top), (635, top + 94), (48, 54, 62), -1, cv2.LINE_AA)
+            cv2.rectangle(window, (65, top), (635, top + 94), (111, 142, 153), 2, cv2.LINE_AA)
+            cv2.putText(window, heading, (90, top + 38),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.77, (240, 245, 247), 2, cv2.LINE_AA)
+            cv2.putText(window, detail, (90, top + 68),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.53, (179, 195, 201), 1, cv2.LINE_AA)
+        return window
+
+    def next_camera() -> None:
+        camera[0] = (camera[0] + 1) % len(cameras)
 
     def on_mouse(event, x, y, flags, userdata):
         if event == cv2.EVENT_LBUTTONUP and 65 <= x <= 635:
+            if camera_top <= y <= camera_top + 94:
+                next_camera()
             for mode, _, _, top in buttons:
                 if top <= y <= top + 94:
                     selected[0] = mode
@@ -140,17 +183,19 @@ def choose_mode() -> str | None:
     cv2.setMouseCallback(title, on_mouse)
     try:
         while selected[0] is None:
-            cv2.imshow(title, window)
+            cv2.imshow(title, draw())
             key = cv2.waitKey(30) & 0xFF
             if key == ord("1"):
                 selected[0] = "normal"
             elif key == ord("2"):
                 selected[0] = "naruto"
+            elif key == ord("c"):
+                next_camera()
             elif key in (ord("q"), 27):
                 return None
             if cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE) < 1:
                 return None
-        return selected[0]
+        return selected[0], cameras[camera[0]][0]
     finally:
         cv2.destroyWindow(title)
 
@@ -233,7 +278,7 @@ def open_camera(index: int, width: int, height: int) -> cv2.VideoCapture:
 
     if not capture.isOpened():
         raise RuntimeError(
-            f"Webcam {index} non disponibile. Chiudi le altre app oppure prova --camera 1."
+            f"Webcam {index} non disponibile. Chiudi le altre app oppure scegli un'altra webcam nel menu."
         )
 
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -654,16 +699,22 @@ def run() -> int:
     args = parse_args()
     if getattr(args, "self_test", False):
         return self_test()
-    mode = args.mode or choose_mode()
-    if mode is None:
+    if args.mode:
+        # Without the menu, use the first webcam that the system reports.
+        cameras = list_cameras(limit=1)
+        choice = args.mode, cameras[0][0] if cameras else 0
+    else:
+        choice = choose_mode()
+    if choice is None:
         return 0
+    mode, camera = choice
     with ExitStack() as resources:
-        return run_camera(args, resources, mode)
+        return run_camera(args, resources, mode, camera)
 
 
-def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str) -> int:
+def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera: int) -> int:
     download_models(mode)
-    capture = open_camera(args.camera, args.width, args.height)
+    capture = open_camera(camera, args.width, args.height)
     resources.callback(capture.release)
     capture.set(cv2.CAP_PROP_FPS, args.fps)
     segmenter, recognizer = create_tasks(mode)

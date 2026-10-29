@@ -59,10 +59,12 @@ OBS has only one virtual camera. Do not use it as both an OBS input and output a
 
 The `V` and `R` keys are disabled in Goku mode.
 
-You can change the camera, resolution, and maximum virtual-output FPS:
+Choose the webcam in the start menu: click the **Webcam** row or press `C` to switch to the next one. With `--mode`, the menu is skipped and the first webcam is used.
+
+You can change the resolution and maximum virtual-output FPS:
 
 ```powershell
-local_app\AVVIA_LOCALE.bat --camera 1 --width 1280 --height 720 --fps 30
+local_app\AVVIA_LOCALE.bat --width 1280 --height 720 --fps 30
 ```
 
 To troubleshoot gesture recognition without adding text to the video, pass `--gesture-debug`. Diagnostic information appears only in the terminal.

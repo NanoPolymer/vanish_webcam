@@ -126,10 +126,23 @@ class MenuTests(unittest.TestCase):
             mocks.enter_context(patch.object(app.cv2, "imshow"))
             mocks.enter_context(patch.object(app.cv2, "destroyWindow"))
             mocks.enter_context(patch.object(app.cv2, "getWindowProperty", return_value=1))
+            mocks.enter_context(patch.object(app, "list_cameras", return_value=[(1, "A"), (5, "B")]))
             key = mocks.enter_context(patch.object(app.cv2, "waitKey", return_value=ord("2")))
-            self.assertEqual(app.choose_mode(), "naruto")
-            key.return_value = ord("1")
-            self.assertEqual(app.choose_mode(), "normal")
+            self.assertEqual(app.choose_mode(), ("naruto", 1))
+            key.return_value = None
+            key.side_effect = (ord("c"), ord("1"))
+            self.assertEqual(app.choose_mode(), ("normal", 5))
+            key.side_effect = (ord("c"), ord("c"), ord("2"))
+            self.assertEqual(app.choose_mode(), ("naruto", 1))  # The selection wraps around.
+
+    def test_menu_without_detected_webcam_falls_back_to_index_zero(self):
+        with ExitStack() as mocks:
+            for name in ("namedWindow", "setMouseCallback", "imshow", "destroyWindow"):
+                mocks.enter_context(patch.object(app.cv2, name))
+            mocks.enter_context(patch.object(app.cv2, "getWindowProperty", return_value=1))
+            mocks.enter_context(patch.object(app, "list_cameras", return_value=[]))
+            mocks.enter_context(patch.object(app.cv2, "waitKey", return_value=ord("1")))
+            self.assertEqual(app.choose_mode(), ("normal", 0))
 
 
 class NarutoVideoLoopTests(unittest.TestCase):
