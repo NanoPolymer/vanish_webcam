@@ -831,7 +831,8 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str) -> int
                         vanished_frame = display
 
             if virtual_camera is not None:
-                send_virtual_frame(virtual_camera, display)
+                # Only the local preview is a mirror. Video call apps mirror the self-view themselves.
+                send_virtual_frame(virtual_camera, display if args.no_mirror else cv2.flip(display, 1))
             cv2.imshow(WINDOW_NAME, display)
 
             key = cv2.waitKey(1) & 0xFF

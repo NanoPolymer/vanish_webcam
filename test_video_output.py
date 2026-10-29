@@ -62,16 +62,18 @@ class VirtualCameraTests(unittest.TestCase):
 
 
 class VideoLoopTests(unittest.TestCase):
-    def run_mock_video(self, send_error=None, gesture=("No_Hand", 0.0)):
+    def run_mock_video(self, send_error=None, gesture=("No_Hand", 0.0), mirror=False):
         capture = Mock()
         frames = [np.full((24, 40, 3), color, np.uint8) for color in (10, 40, 80, 120, 160)]
+        for frame in frames:
+            frame[:, 0] = 255  # Asymmetric frame: a mirror is visible.
         capture.read.side_effect = [(True, frame) for frame in frames]
         segmenter, recognizer = Mock(), Mock()
         camera = Mock(width=40, height=24)
         camera.send.side_effect = send_error
         displayed = []
         with ExitStack() as mocks:
-            mocks.enter_context(patch.object(app, "parse_args", return_value=arguments()))
+            mocks.enter_context(patch.object(app, "parse_args", return_value=arguments(no_mirror=not mirror)))
             mocks.enter_context(patch.object(app, "download_models"))
             mocks.enter_context(patch.object(app, "open_camera", return_value=capture))
             mocks.enter_context(patch.object(app, "create_tasks", return_value=(segmenter, recognizer)))
@@ -117,6 +119,11 @@ class VideoLoopTests(unittest.TestCase):
         self.assertTrue(np.any(displayed[3] != frames[3]))  # Animazione in corso.
         self.assertTrue(np.any(displayed[3] != frames[1]))  # Non ancora sparito.
         np.testing.assert_array_equal(displayed[4], frames[1])  # Animazione completata.
+
+    def test_virtual_output_is_not_mirrored(self):
+        frames, camera, displayed = self.run_mock_video(mirror=True)
+        for sent, preview in zip(camera.send.call_args_list, displayed):
+            np.testing.assert_array_equal(sent.args[0], preview[:, ::-1])
 
     def test_all_devices_close_on_send_error(self):
         self.run_mock_video(send_error=RuntimeError("send failed"))
