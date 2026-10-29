@@ -51,6 +51,16 @@ local_app\AVVIA_VIRTUAL.bat --virtual-backend unitycapture
 
 OBS has only one virtual camera. Do not use it as both an OBS input and output at the same time. See the [pyvirtualcam documentation](https://github.com/letmaik/pyvirtualcam#supported-virtual-cameras).
 
+## Effect sound in meetings
+
+The virtual camera carries only video. To send the effect sound to the other participants on Linux, start the app with `--meeting-audio`:
+
+```sh
+python vanish_cam.py --meeting-audio
+```
+
+The app creates a virtual microphone, **VanishMic**, that mixes your default microphone and the effect sound. You still hear the sound through your speakers or headset. Select **VanishMic** as the microphone in the meeting app, and set its noise suppression to low (in Zoom, use "Original sound"), or it may filter out the effect. The app removes the virtual devices when it closes. This needs PulseAudio or PipeWire with `pactl`. On Windows, use [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) or Voicemeeter instead.
+
 ## Controls
 
 - `SPACE`: capture a new background.

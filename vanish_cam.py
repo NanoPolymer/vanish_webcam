@@ -25,6 +25,7 @@ try:
         load_log, overlay_log, render_substitution, substitution_anchor,
     )
     from .vanish_sound import SOUND_PATH, VanishSound
+    from .meeting_audio import MIC_SOURCE, MeetingAudio
     from .goku_effect import (
         EFFECT_SECONDS as GOKU_SECONDS, HoldTimer, fingers_on_forehead,
         make_teleport_field, render_teleport,
@@ -35,6 +36,7 @@ except ImportError:
         load_log, overlay_log, render_substitution, substitution_anchor,
     )
     from vanish_sound import SOUND_PATH, VanishSound
+    from meeting_audio import MIC_SOURCE, MeetingAudio
     from goku_effect import (
         EFFECT_SECONDS as GOKU_SECONDS, HoldTimer, fingers_on_forehead,
         make_teleport_field, render_teleport,
@@ -154,6 +156,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gesture-debug", action="store_true",
         help="Show the gesture recognition status in the terminal. The video shows no text.",
+    )
+    parser.add_argument(
+        "--meeting-audio", action="store_true",
+        help="Make the virtual microphone VanishMic (Linux). It mixes your microphone and the effect sound.",
     )
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
@@ -821,6 +827,14 @@ def run_camera(args: argparse.Namespace, resources: ExitStack, mode: str, camera
     resources.callback(recognizer.close)
     log_sprite = load_log() if mode == "naruto" else None
     vanish_sound = None
+    if getattr(args, "meeting_audio", False):
+        if mode == "normal":
+            print("[Webcam] Normal Vanish has no sound. The app ignores --meeting-audio.")
+        else:
+            meeting_audio = MeetingAudio()
+            meeting_audio.open()
+            resources.callback(meeting_audio.close)
+            print(f"[Webcam] Select the microphone 'VanishMic' ({MIC_SOURCE}) in the meeting app.")
     if mode in ("naruto", "goku"):
         # The effect works without audio, so a missing audio device must not stop the app.
         try:
