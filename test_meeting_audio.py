@@ -40,6 +40,14 @@ class MeetingAudioTests(unittest.TestCase):
             self.addCleanup(mock.stop)
         os.environ.pop("PULSE_SINK", None)
 
+    def test_virtual_mic_is_a_source_node_not_a_filter(self):
+        fake = FakePactl()
+        MeetingAudio(fake).open()
+        loaded = [call for call in fake.calls if call[0] == "load-module"]
+        self.assertNotIn("module-remap-source", [call[1] for call in loaded])
+        self.assertTrue(any("media.class=Audio/Source node.name=vanish_mic" in " ".join(call)
+                            for call in loaded))
+
     def test_open_routes_microphone_and_effect_then_close_unloads_only_own_modules(self):
         fake = FakePactl()
         audio = MeetingAudio(fake)
@@ -68,7 +76,7 @@ class MeetingAudioTests(unittest.TestCase):
                 MeetingAudio(FakePactl(source=source)).open()
 
     def test_failure_unloads_the_modules_that_were_loaded(self):
-        fake = FakePactl(fail_on="module-remap-source")
+        fake = FakePactl(fail_on="module-loopback")
         with self.assertRaisesRegex(RuntimeError, "load failed"):
             MeetingAudio(fake).open()
         self.assertIn(("unload-module", "101"), fake.calls)

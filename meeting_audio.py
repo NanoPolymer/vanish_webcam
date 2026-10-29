@@ -2,8 +2,11 @@
 
 The app plays the effect into the "vanish_fx" sink. Loopbacks send it to the
 speakers and into the "vanish_mix" sink, together with the real microphone.
-The meeting app records "VanishMic", which is the monitor of "vanish_mix".
-This works with PulseAudio and with PipeWire (pipewire-pulse).
+A loopback sends "vanish_mix" to "VanishMic", which the meeting app records.
+The playback side of that loopback is an Audio/Source node, so desktop sound
+settings show VanishMic as a normal input. This needs PipeWire (pipewire-pulse).
+A remap-source is not used: it has the "filter" device class, and KDE Plasma
+does not show it as an input.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ class MeetingAudio:
     def open(self) -> None:
         if platform.system() != "Linux" or shutil.which("pactl") is None:
             raise RuntimeError(
-                "--meeting-audio needs Linux with PulseAudio or PipeWire and pactl. "
+                "--meeting-audio needs Linux with PipeWire and pactl. "
                 "On Windows, use VB-Audio Virtual Cable or Voicemeeter."
             )
         self.remove_leftovers()
@@ -50,8 +53,9 @@ class MeetingAudio:
         try:
             self.load("module-null-sink", f"sink_name={MIX_SINK}",
                       "sink_properties=device.description=VanishMix")
-            self.load("module-remap-source", f"master={MIX_SINK}.monitor",
-                      f"source_name={MIC_SOURCE}", "source_properties=device.description=VanishMic")
+            self.load("module-loopback", f"source={MIX_SINK}.monitor", "latency_msec=20",
+                      f'sink_input_properties="media.class=Audio/Source node.name={MIC_SOURCE} '
+                      'node.description=VanishMic"')
             self.load("module-loopback", f"source={microphone}", f"sink={MIX_SINK}", "latency_msec=20")
             self.load("module-null-sink", f"sink_name={EFFECT_SINK}",
                       "sink_properties=device.description=VanishFX")
