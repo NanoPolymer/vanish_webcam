@@ -53,13 +53,13 @@ OBS has only one virtual camera. Do not use it as both an OBS input and output a
 
 ## Effect sound in meetings
 
-The virtual camera carries only video. To send the effect sound to the other participants on Linux, start the app with `--meeting-audio`:
+The virtual camera carries only video. To send the effect sound to the other participants on Linux, tick **Meeting microphone (VanishMic)** in the side panel. You can switch it on and off while the app runs. To start with it on, pass `--meeting-audio`:
 
 ```sh
 python vanish_cam.py --meeting-audio
 ```
 
-The app creates a virtual microphone, **VanishMic**, that mixes your default microphone and the effect sound. You still hear the sound through your speakers or headset. Select **VanishMic** as the microphone in the meeting app, and set its noise suppression to low (in Zoom, use "Original sound"), or it may filter out the effect. The app removes the virtual devices when it closes. This needs PipeWire with `pactl` and `pw-link`. On Windows, use [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) or Voicemeeter instead.
+The app creates a virtual microphone, **VanishMic**, that mixes your default microphone and the effect sound. You still hear the sound through your speakers or headset. Select **VanishMic** as the microphone in the meeting app, and set its noise suppression to low (in Zoom, use "Original sound"), or it may filter out the effect. The app removes the virtual devices when you untick the box or close the app. This needs PipeWire with `pactl` and `pw-link`. On Windows, use [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) or Voicemeeter instead.
 
 ## Controls
 

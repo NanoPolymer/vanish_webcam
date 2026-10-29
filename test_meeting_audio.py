@@ -72,6 +72,7 @@ class MeetingAudioTests(unittest.TestCase):
         audio.close()
         unloaded = [call[1] for call in fake.calls if call[0] == "unload-module"]
         self.assertEqual(unloaded, ["106", "105", "104", "103", "102", "101"])
+        self.assertNotIn("PULSE_SINK", os.environ)
 
     def test_leftovers_of_an_earlier_run_are_removed(self):
         modules = ("7\tmodule-null-sink\tsink_name=vanish_mix\n"

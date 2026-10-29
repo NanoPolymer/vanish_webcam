@@ -180,6 +180,17 @@ class WindowTests(unittest.TestCase):
                 self.assertTrue(window.background_button.cget("text").startswith("Leave the view: "))
                 window.select_language(1)
                 self.assertEqual(window.effect_label.cget("text"), "Effetto")
+                with patch.object(app, "MeetingAudio") as meeting, \
+                        patch.object(window.engine, "reload_sound") as reload_sound:
+                    window.meeting_check.invoke()  # On.
+                    meeting.return_value.open.assert_called_once()
+                    window.meeting_check.invoke()  # Off.
+                    meeting.return_value.close.assert_called_once()
+                    self.assertEqual(reload_sound.call_count, 2)
+                    meeting.return_value.open.side_effect = RuntimeError("no pactl")
+                    window.meeting_check.invoke()  # A failure leaves the box off.
+                    self.assertFalse(window.meeting_enabled.get())
+                    self.assertIsNone(window.meeting_audio)
                 window.select_camera(1)
                 self.assertEqual(opening.call_args.args[0], 5)
                 self.assertEqual(window.engine.state.phase, "no_background")

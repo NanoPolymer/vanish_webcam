@@ -103,6 +103,9 @@ class MeetingAudio:
                 self.run("unload-module", fields[0])
 
     def close(self) -> None:
+        # Send the effect sound to the default output again when the audio opens next time.
+        if os.environ.get("PULSE_SINK") == EFFECT_SINK:
+            del os.environ["PULSE_SINK"]
         while self.modules:
             try:
                 self.run("unload-module", self.modules.pop())

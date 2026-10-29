@@ -80,6 +80,8 @@ TEXT = {
         "status_loading": "Loading the effect...",
         "status_camera_error": "Cannot open this webcam.",
         "status_mode_error": "Cannot load this effect.",
+        "meeting": "Meeting microphone (VanishMic)",
+        "status_meeting_error": "Cannot make VanishMic. Read the terminal.",
     },
     "it": {
         "webcam": "Webcam",
@@ -104,6 +106,8 @@ TEXT = {
         "status_loading": "Carico l'effetto...",
         "status_camera_error": "Impossibile aprire questa webcam.",
         "status_mode_error": "Impossibile caricare questo effetto.",
+        "meeting": "Microfono per riunioni (VanishMic)",
+        "status_meeting_error": "Impossibile creare VanishMic. Leggi il terminale.",
     },
 }
 SEGMENTER_MODEL = MODEL_DIR / "selfie_segmenter_landscape.tflite"
@@ -194,7 +198,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--meeting-audio", action="store_true",
-        help="Make the virtual microphone VanishMic (Linux). It mixes your microphone and the effect sound.",
+        help="Start with the virtual microphone VanishMic on (Linux). It mixes your microphone and the effect sound. The window can change it.",
     )
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
@@ -803,13 +807,8 @@ class VanishEngine:
         self.segmenter, self.recognizer = segmenter, recognizer
         self.log_sprite = load_log() if mode == "naruto" else None
         self.log_cache = {}
-        if mode in MODE_SOUNDS:
-            # The effect works without audio, so a missing audio device must not stop the app.
-            try:
-                self.sound = VanishSound(MODE_SOUNDS[mode])
-            except RuntimeError as error:
-                print(f"[Webcam] The audio is off: {error}")
         self.mode = mode
+        self.reload_sound()
         self.reset_effect()
         if self.background is not None and self.state.phase != "calibrating":
             self.state.phase = "ready"
@@ -831,6 +830,18 @@ class VanishEngine:
         self.calibration_remaining = None
         self.reset_effect()
         print("[Webcam] Move out of the camera view for 4 seconds. The app records the background.")
+
+    def reload_sound(self) -> None:
+        """Open the sound of the mode again. The audio output reads PULSE_SINK only when it opens."""
+        if self.sound is not None:
+            self.sound.close()
+            self.sound = None
+        if self.mode in MODE_SOUNDS:
+            # The effect works without audio, so a missing audio device must not stop the app.
+            try:
+                self.sound = VanishSound(MODE_SOUNDS[self.mode])
+            except RuntimeError as error:
+                print(f"[Webcam] The audio is off: {error}")
 
     def forget_background(self) -> None:
         """Remove the background, for example after a change of the webcam."""
@@ -1041,6 +1052,8 @@ class AppWindow:
         resources.callback(self.engine.close)
         resources.callback(self.release_camera)
         resources.callback(self.close_virtual_camera)
+        self.meeting_audio: MeetingAudio | None = None
+        resources.callback(self.stop_meeting_audio)
 
         self.root = tk.Tk()
         resources.callback(self.destroy)
@@ -1098,13 +1111,20 @@ class AppWindow:
         self.vanish_button = button(8, lambda: self.engine.vanish(time.perf_counter()))
         self.reappear_button = button(9, lambda: self.engine.reappear(time.perf_counter()))
         self.fullscreen_button = button(10, self.toggle_fullscreen)
+        self.meeting_enabled = tk.BooleanVar(self.root, value=False)
+        self.meeting_check = tk.Checkbutton(
+            panel, variable=self.meeting_enabled, command=self.toggle_meeting_audio, takefocus=0,
+            anchor="w", bg=self.PANEL, fg=self.FOREGROUND, selectcolor=self.CONTROL,
+            activebackground=self.PANEL, activeforeground=self.FOREGROUND, highlightthickness=0,
+        )
+        self.meeting_check.grid(row=11, column=0, sticky="ew", pady=(12, 0))
         self.status_label = tk.Label(panel, bg=self.PANEL, fg=self.FOREGROUND, anchor="w",
                                      justify="left", wraplength=240)
-        self.status_label.grid(row=11, column=0, sticky="ew", pady=(16, 0))
-        panel.rowconfigure(12, weight=1)
+        self.status_label.grid(row=12, column=0, sticky="ew", pady=(16, 0))
+        panel.rowconfigure(13, weight=1)
         self.keys_label = tk.Label(panel, bg=self.PANEL, fg=self.MUTED, anchor="w",
                                    justify="left", wraplength=240, font=("TkDefaultFont", 8))
-        self.keys_label.grid(row=13, column=0, sticky="sew")
+        self.keys_label.grid(row=14, column=0, sticky="sew")
 
         self.root.bind("<KeyPress>", self.on_key)
         self.fullscreen = False
@@ -1114,6 +1134,10 @@ class AppWindow:
         self.effect_box.current(MODES.index(mode))
         self.update_texts()
         self.open_camera(self.cameras[0][0])
+        if getattr(args, "meeting_audio", False):
+            # Make the microphone before the sound opens, so that the sound goes into the mix.
+            self.meeting_enabled.set(True)
+            self.start_meeting_audio()
         self.select_mode(MODES.index(mode))
         if args.fullscreen:
             self.toggle_fullscreen()
@@ -1173,6 +1197,34 @@ class AppWindow:
                 self.effect_box.current(MODES.index(self.engine.mode))
         self.update_texts()
 
+    def start_meeting_audio(self) -> None:
+        audio = MeetingAudio()
+        try:
+            audio.open()
+        except RuntimeError as error:
+            print(f"[Webcam] {error}")
+            self.meeting_enabled.set(False)
+            self.status_override = self.text("status_meeting_error")
+            return
+        self.meeting_audio = audio
+        self.status_override = None
+        print(f"[Webcam] Select the microphone 'VanishMic' ({MIC_SOURCE}) in the meeting app.")
+
+    def stop_meeting_audio(self) -> None:
+        if self.meeting_audio is not None:
+            self.meeting_audio.close()
+            self.meeting_audio = None
+            print("[Webcam] VanishMic is removed.")
+
+    def toggle_meeting_audio(self) -> None:
+        """Start or stop VanishMic. Then open the sound again, so that it uses the new output."""
+        if self.meeting_enabled.get():
+            self.start_meeting_audio()
+        else:
+            self.stop_meeting_audio()
+        self.engine.reload_sound()
+        self.root.focus_set()
+
     def select_language(self, position: int) -> None:
         self.language = LANGUAGES[position]
         self.update_texts()
@@ -1214,6 +1266,7 @@ class AppWindow:
         self.reappear_button.configure(text=self.text("reappear"))
         self.fullscreen_button.configure(text=self.text("fullscreen"))
         self.keys_label.configure(text=self.text("keys"))
+        self.meeting_check.configure(text=self.text("meeting"))
         self.update_controls(time.perf_counter())
 
     def update_controls(self, now: float) -> None:
@@ -1285,12 +1338,6 @@ def run() -> int:
     if getattr(args, "self_test", False):
         return self_test()
     with ExitStack() as resources:
-        if getattr(args, "meeting_audio", False):
-            # Make the microphone before the window, so that the meeting app can select it early.
-            meeting_audio = MeetingAudio()
-            meeting_audio.open()
-            resources.callback(meeting_audio.close)
-            print(f"[Webcam] Select the microphone 'VanishMic' ({MIC_SOURCE}) in the meeting app.")
         window = AppWindow(args, resources)
         print("[Webcam] Click 'Capture background', then move out of the camera view for 4 seconds.")
         print("[Webcam] Keys in the window: SPACE new background, R reappear, V vanish, F full screen, Q quit.")
