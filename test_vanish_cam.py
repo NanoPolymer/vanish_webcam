@@ -183,14 +183,17 @@ class MultiViewTests(unittest.TestCase):
         detector = MultiViewGestureRecognizer(
             SimpleNamespace(recognize_for_video=lambda image, timestamp: self.empty), alternate
         )
+        # Each retry tries three views and the next retry waits one gesture interval.
         self.assertEqual(recognize_gesture(detector, self.image, 1000)[0], "No_Hand")
-        self.assertEqual(len(calls), 10)
+        self.assertEqual(len(calls), 3)
+        recognize_gesture(detector, self.image, 1100)
+        self.assertEqual(len(calls), 3)
         recognize_gesture(detector, self.image, 1140)
-        self.assertEqual(len(calls), 10)
+        self.assertEqual(len(calls), 6)
         alternate.recognize = lambda image: self.victory
-        self.assertEqual(recognize_gesture(detector, self.image, 1420)[0], "Victory")
+        self.assertEqual(recognize_gesture(detector, self.image, 1280)[0], "Victory")
         alternate.recognize = lambda image: self.empty
-        self.assertEqual(recognize_gesture(detector, self.image, 1560)[0], "No_Hand")
+        self.assertEqual(recognize_gesture(detector, self.image, 1420)[0], "No_Hand")
 
     def test_primary_victory_avoids_extra_inference(self):
         calls = []
@@ -212,11 +215,14 @@ class MultiViewTests(unittest.TestCase):
             SimpleNamespace(recognize_for_video=lambda image, timestamp: self.empty),
             SimpleNamespace(recognize=recognize),
         )
-        self.assertEqual(recognize_gesture(detector, self.image, 1000)[0], "Victory")
+        # The crop is not in the first retry, so it must appear in a later one.
+        results = [recognize_gesture(detector, self.image, 1000 + 140 * retry)[0]
+                   for retry in range(4)]
+        self.assertIn("Victory", results)
         self.assertEqual(detector.preferred_crop, "lower_left")
         self.assertEqual(detector.preferred_rotation, 0)
         calls.clear()
-        self.assertEqual(recognize_gesture(detector, self.image, 1140)[0], "Victory")
+        self.assertEqual(recognize_gesture(detector, self.image, 2000)[0], "Victory")
         self.assertEqual(calls, [(37, 24)])
 
 
