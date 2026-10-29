@@ -41,7 +41,7 @@ local_app\AVVIA_LOCALE.bat --mode goku
 
 If [OBS Studio](https://obsproject.com/) is installed, the app automatically tries to open **OBS Virtual Camera**. The terminal shows the device name. Use `AVVIA_VIRTUAL.bat` to require a virtual camera. Select **OBS Virtual Camera** in the app that will receive the video. OBS's virtual camera must be stopped while this app is producing its output.
 
-To use the effect in an OBS scene, run `AVVIA_OBS.bat`, add a **Window Capture** source, select **Webcam - Anteprima**, and then start the virtual camera from OBS. Alternatively, use [Unity Capture](https://github.com/schellingb/UnityCapture) as a separate virtual video source:
+To use the effect in an OBS scene, run `AVVIA_OBS.bat`, add a **Window Capture** source, select **Webcam - Preview** (**Webcam - Anteprima** if you chose Italian), and then start the virtual camera from OBS. Alternatively, use [Unity Capture](https://github.com/schellingb/UnityCapture) as a separate virtual video source:
 
 ```powershell
 local_app\AVVIA_VIRTUAL.bat --virtual-backend unitycapture
@@ -59,7 +59,11 @@ OBS has only one virtual camera. Do not use it as both an OBS input and output a
 
 The `V` and `R` keys are disabled in Goku mode.
 
-Choose the webcam in the start menu: click the **Webcam** row or press `C` to switch to the next one. With `--mode`, the menu is skipped and the first webcam is used.
+Choose the webcam in the start menu: click the **Webcam** row or press `C` to switch to the next one.
+
+The menu and window titles are in English by default. Click the **Language** row or press `L` to switch to Italian. Terminal messages are always in English.
+
+With `--mode`, the menu is skipped, and the app uses the first webcam and English.
 
 You can change the resolution and maximum virtual-output FPS:
 

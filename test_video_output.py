@@ -47,7 +47,7 @@ class VirtualCameraTests(unittest.TestCase):
     def test_send_preserves_colors_and_handles_noncontiguous_frames(self):
         camera = Mock(width=40, height=24)
         frame = np.zeros((24, 40, 3), np.uint8)
-        frame[:] = (10, 70, 200)  # BGR: non scambiare rosso e blu.
+        frame[:] = (10, 70, 200)  # BGR: do not swap red and blue.
         app.send_virtual_frame(camera, frame[:, ::-1])
         sent = camera.send.call_args.args[0]
         self.assertTrue(sent.flags.c_contiguous)
@@ -66,7 +66,7 @@ class VideoLoopTests(unittest.TestCase):
         capture = Mock()
         frames = [np.full((24, 40, 3), color, np.uint8) for color in (10, 40, 80, 120, 160)]
         for frame in frames:
-            frame[:, 0] = 255  # Asymmetric frame: a mirror is visible.
+            frame[:, 0] = 255  # The frame is not symmetrical, so a mirror image is different.
         capture.read.side_effect = [(True, frame) for frame in frames]
         segmenter, recognizer = Mock(), Mock()
         camera = Mock(width=40, height=24)
@@ -83,12 +83,13 @@ class VideoLoopTests(unittest.TestCase):
             times = (0, 0, 0.1, 4.1, 4.3, 4.35, 5.0, 5.02, 8.2, 8.23)
             mocks.enter_context(patch.object(app.time, "perf_counter", side_effect=times))
             mocks.enter_context(patch.object(app.cv2, "namedWindow"))
+            mocks.enter_context(patch.object(app.cv2, "setWindowTitle"))
             mocks.enter_context(patch.object(app.cv2, "resizeWindow"))
             destroy = mocks.enter_context(patch.object(app.cv2, "destroyAllWindows"))
             mocks.enter_context(patch.object(app.cv2, "imshow", side_effect=lambda name, frame: displayed.append(frame.copy())))
             keys = (0, 0, ord("v") if gesture[0] != "Victory" else 0, 0, ord("q"))
             mocks.enter_context(patch.object(app.cv2, "waitKey", side_effect=keys))
-            mocks.enter_context(patch.object(app.cv2, "putText", side_effect=AssertionError("Overlay vietato")))
+            mocks.enter_context(patch.object(app.cv2, "putText", side_effect=AssertionError("Text overlay is not permitted")))
             mocks.enter_context(patch("builtins.print"))
             if send_error is None:
                 self.assertEqual(app.run(), 0)
@@ -109,16 +110,16 @@ class VideoLoopTests(unittest.TestCase):
         self.assertEqual(len(displayed), 5)
         for sent, preview in zip(camera.send.call_args_list, displayed):
             np.testing.assert_array_equal(sent.args[0], preview)
-        np.testing.assert_array_equal(displayed[0], frames[0])  # Calibrazione.
-        np.testing.assert_array_equal(displayed[2], frames[2])  # Pronto.
-        np.testing.assert_array_equal(displayed[4], frames[1])  # Sparito: solo sfondo.
+        np.testing.assert_array_equal(displayed[0], frames[0])  # Calibration.
+        np.testing.assert_array_equal(displayed[2], frames[2])  # Ready.
+        np.testing.assert_array_equal(displayed[4], frames[1])  # Vanished: background only.
 
     def test_first_gesture_starts_dissolve_in_preview_and_virtual_output(self):
         frames, camera, displayed = self.run_mock_video(gesture=("Victory", 0.9))
         np.testing.assert_array_equal(camera.send.call_args_list[2].args[0], displayed[2])
-        self.assertTrue(np.any(displayed[3] != frames[3]))  # Animazione in corso.
-        self.assertTrue(np.any(displayed[3] != frames[1]))  # Non ancora sparito.
-        np.testing.assert_array_equal(displayed[4], frames[1])  # Animazione completata.
+        self.assertTrue(np.any(displayed[3] != frames[3]))  # The animation is not complete.
+        self.assertTrue(np.any(displayed[3] != frames[1]))  # The person is still visible.
+        np.testing.assert_array_equal(displayed[4], frames[1])  # The animation is complete.
 
     def test_virtual_output_is_not_mirrored(self):
         frames, camera, displayed = self.run_mock_video(mirror=True)

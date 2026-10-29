@@ -123,26 +123,41 @@ class MenuTests(unittest.TestCase):
         with ExitStack() as mocks:
             mocks.enter_context(patch.object(app.cv2, "namedWindow"))
             mocks.enter_context(patch.object(app.cv2, "setMouseCallback"))
+            mocks.enter_context(patch.object(app.cv2, "setWindowTitle"))
             mocks.enter_context(patch.object(app.cv2, "imshow"))
             mocks.enter_context(patch.object(app.cv2, "destroyWindow"))
             mocks.enter_context(patch.object(app.cv2, "getWindowProperty", return_value=1))
             mocks.enter_context(patch.object(app, "list_cameras", return_value=[(1, "A"), (5, "B")]))
             key = mocks.enter_context(patch.object(app.cv2, "waitKey", return_value=ord("2")))
-            self.assertEqual(app.choose_mode(), ("naruto", 1))
+            self.assertEqual(app.choose_mode(), ("naruto", 1, "en"))
             key.return_value = None
             key.side_effect = (ord("c"), ord("1"))
-            self.assertEqual(app.choose_mode(), ("normal", 5))
+            self.assertEqual(app.choose_mode(), ("normal", 5, "en"))
             key.side_effect = (ord("c"), ord("c"), ord("2"))
-            self.assertEqual(app.choose_mode(), ("naruto", 1))  # The selection wraps around.
+            self.assertEqual(app.choose_mode(), ("naruto", 1, "en"))  # After the last webcam, the selection goes back to the first.
+
+    def test_language_selection_changes_menu_text_and_title(self):
+        shown, titles = [], []
+        with ExitStack() as mocks:
+            for name in ("namedWindow", "setMouseCallback", "destroyWindow"):
+                mocks.enter_context(patch.object(app.cv2, name))
+            mocks.enter_context(patch.object(app.cv2, "getWindowProperty", return_value=1))
+            mocks.enter_context(patch.object(app, "list_cameras", return_value=[(1, "A")]))
+            mocks.enter_context(patch.object(app.cv2, "imshow", side_effect=lambda name, image: shown.append(image)))
+            mocks.enter_context(patch.object(app.cv2, "setWindowTitle", side_effect=lambda name, title: titles.append(title)))
+            mocks.enter_context(patch.object(app.cv2, "waitKey", side_effect=(ord("l"), 0, ord("1"))))
+            self.assertEqual(app.choose_mode(), ("normal", 1, "it"))
+        self.assertEqual(titles, ["Choose effect", "Scegli effetto"])
+        self.assertTrue(np.any(shown[0] != shown[1]))  # The text changed.
 
     def test_menu_without_detected_webcam_falls_back_to_index_zero(self):
         with ExitStack() as mocks:
-            for name in ("namedWindow", "setMouseCallback", "imshow", "destroyWindow"):
+            for name in ("namedWindow", "setWindowTitle", "setMouseCallback", "imshow", "destroyWindow"):
                 mocks.enter_context(patch.object(app.cv2, name))
             mocks.enter_context(patch.object(app.cv2, "getWindowProperty", return_value=1))
             mocks.enter_context(patch.object(app, "list_cameras", return_value=[]))
             mocks.enter_context(patch.object(app.cv2, "waitKey", return_value=ord("1")))
-            self.assertEqual(app.choose_mode(), ("normal", 0))
+            self.assertEqual(app.choose_mode(), ("normal", 0, "en"))
 
 
 class NarutoVideoLoopTests(unittest.TestCase):
@@ -166,11 +181,12 @@ class NarutoVideoLoopTests(unittest.TestCase):
                 0, 0, 0.1, 4.1, 4.3, 4.35, 4.40, 4.42, 5.05, 5.1, 5.9,
             )))
             mocks.enter_context(patch.object(app.cv2, "namedWindow"))
+            mocks.enter_context(patch.object(app.cv2, "setWindowTitle"))
             mocks.enter_context(patch.object(app.cv2, "resizeWindow"))
             mocks.enter_context(patch.object(app.cv2, "destroyAllWindows"))
             mocks.enter_context(patch.object(app.cv2, "imshow", side_effect=lambda name, frame: preview.append(frame.copy())))
             mocks.enter_context(patch.object(app.cv2, "waitKey", side_effect=(0, 0, 0, 0, ord("q"))))
-            mocks.enter_context(patch.object(app.cv2, "putText", side_effect=AssertionError("Overlay vietato")))
+            mocks.enter_context(patch.object(app.cv2, "putText", side_effect=AssertionError("Text overlay is not permitted")))
             mocks.enter_context(patch("builtins.print"))
             self.assertEqual(app.run(), 0)
         self.assertEqual(len(preview), 5)
@@ -178,7 +194,7 @@ class NarutoVideoLoopTests(unittest.TestCase):
             np.testing.assert_array_equal(sent.args[0], shown)
         self.assertTrue(np.any(preview[2] != frames[2]))
         self.assertTrue(np.any(preview[3] != frames[3]))
-        self.assertTrue(np.any(preview[4] != frames[1]))  # Tronco persistente.
+        self.assertTrue(np.any(preview[4] != frames[1]))  # The log stays.
         recognizer.recognize_joined_hands.assert_called_once()
 
     def test_effect_is_sent_to_preview_and_virtual_camera(self):
